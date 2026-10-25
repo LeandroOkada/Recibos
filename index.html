@@ -167,6 +167,10 @@
     <b id="tituloForm">Nova loja</b>
     <label class="campo" for="lNome">Nome da loja</label>
     <input id="lNome" placeholder="Ex.: Lawson Shibuya">
+    <label class="campo" for="lEndereco">Endereço (opcional)</label>
+    <input id="lEndereco" placeholder="Ex.: 東京都渋谷区…">
+    <label class="campo" for="lTelefone">Telefone (opcional)</label>
+    <input id="lTelefone" type="tel" inputmode="tel" placeholder="Ex.: 03-1234-5678">
     <label class="campo" for="lChaves">Padrões do texto do recibo (opcional, um por linha)</label>
     <textarea id="lChaves" placeholder="Ex.:&#10;T1234567890123&#10;03-1234-5678&#10;ローソン  (= Lawson)"></textarea>
     <p style="font-size:12px;color:var(--sub);margin:6px 2px 0">
@@ -537,8 +541,19 @@ function reconhecerCodigo(codigoBruto, itens) {
 
 // ---------------- Armazenamento ----------------
 const LS = { lojas: "recibos.lojas.v1", itens: "recibos.itens.v1", cats: "recibos.categorias.v1" };
-const CATEGORIAS_PADRAO = ["Supermercado", "Conveniência (konbini)", "Restaurante / Café", "Farmácia / Saúde",
-  "Transporte", "Casa / Utilidades", "Vestuário", "Lazer", "Serviços", "Educação", "Outros"];
+// Categorias = linhas da planilha "Orçamento 2026", por grupo (o botão "Usar categorias da planilha" atualiza)
+const GRUPOS_PADRAO = [
+  ["Básico", ["Alimentação", "Aluguel", "Assistência Médica", "Estética", "Gás", "Higiene", "Luz", "Medicamentos", "Pet", "Saneamento", "Utensílios"]],
+  ["Carteira Digital", ["FX Pro", "Suica"]],
+  ["Conforto", ["Aquecimento", "Automático/Restaurante", "Assinaturas", "Compra Online", "Estadia/Spa", "Lavanderia", "Serviços Online"]],
+  ["Comunicação", ["Móvel UQ", "Provedora Au", "Telefônica NTT"]],
+  ["Esporte", ["Equipamentos", "Inscrições", "Mensalidades", "Seguro Esportivo"]],
+  ["Financiamento", ["SMBCモビット", "アコム", "プロミス", "ポケットマネー", "楽天", "7銀行カードロン"]],
+  ["Receita", ["Salário", "Trade"]],
+  ["Social", ["Eventos", "Presentes"]],
+  ["Transporte", ["Vale-Transporte"]]
+];
+const CATEGORIAS_PADRAO = GRUPOS_PADRAO.flatMap(([, cs]) => cs);
 let armazenamentoOk = true;
 function carregar(k, padrao = []) {
   try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : padrao.slice(); }
@@ -549,10 +564,19 @@ function gravar(k, v) {
   catch { armazenamentoOk = false; }
 }
 let lojas = carregar(LS.lojas);
+// Loja guarda só dados da empresa: remove a antiga "categoria padrão"
+if (lojas.some(l => "categoria" in l)) { lojas.forEach(l => delete l.categoria); gravar(LS.lojas, lojas); }
 let itens = carregar(LS.itens);
 const salvarLojas = () => gravar(LS.lojas, lojas);
 const salvarItens = () => gravar(LS.itens, itens);
 let categorias = carregar(LS.cats, CATEGORIAS_PADRAO);
+// Lista antiga do app (Supermercado, Konbini…) → troca pelas categorias da planilha
+if (categorias.includes("Conveniência (konbini)") || !categorias.length) { categorias = CATEGORIAS_PADRAO.slice(); gravar(LS.cats, categorias); }
+{ // itens novos da lista embutida entram uma vez (se você remover depois, não voltam)
+  const vistos = carregar("recibos.categorias.vistas.v1", categorias);
+  for (const c of CATEGORIAS_PADRAO) if (!vistos.includes(c)) { vistos.push(c); if (!categorias.includes(c)) categorias.push(c); }
+  gravar(LS.cats, categorias); gravar("recibos.categorias.vistas.v1", vistos);
+}
 const salvarCats = () => gravar(LS.cats, categorias);
 const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -585,6 +609,7 @@ function preencherSelectLojas(selecionada) {
 LS.grupos = "recibos.grupos.v1";
 let gruposCat = {};    // { categoria: grupo }
 try { gruposCat = JSON.parse(localStorage.getItem(LS.grupos)) || {}; } catch {}
+for (const [g, cs] of GRUPOS_PADRAO) for (const c of cs) if (!gruposCat[c]) gruposCat[c] = g;
 function opcoesCategoria(sel, selecionada) {
   const lista = categorias.slice();
   if (selecionada && !lista.includes(selecionada)) lista.push(selecionada);
@@ -605,7 +630,7 @@ $("rLoja").onchange = () => {
   if ($("rLoja").value === "__nova__") {
     const nome = (prompt("Nome da nova loja:") || "").trim();
     if (!nome) { preencherSelectLojas(""); return; }
-    const l = { id: novoId(), nome, padroes: [], rotulo: "" };
+    const l = { id: novoId(), nome, endereco: "", telefone: "", padroes: [], rotulo: "" };
     lojas.push(l); salvarLojas();
     preencherSelectLojas(l.id);
     return;
@@ -865,6 +890,8 @@ function editarLoja(id, sugestoes) {
   const l = id ? lojaPorId(id) : null;
   $("tituloForm").textContent = l ? "Editar loja" : "Nova loja";
   $("lNome").value = l ? l.nome : "";
+  $("lEndereco").value = l ? (l.endereco || "") : "";
+  $("lTelefone").value = l ? (l.telefone || "") : "";
   $("lChaves").value = l ? l.padroes.join("\n") : (sugestoes || []).join("\n");
   $("lRotulo").value = l ? (l.rotulo || "") : "";
   $("btnCancelarLoja").classList.toggle("oculto", !l && !sugestoes);
@@ -881,9 +908,13 @@ $("btnSalvarLoja").onclick = () => {
   // Padrões de texto são opcionais: lojas lançadas por código de barras
   // são reconhecidas pelo padrão aprendido do código.
   const rotulo = $("lRotulo").value.trim();
+  const endereco = $("lEndereco").value.trim();
+  const telefone = $("lTelefone").value.trim();
+  // O telefone impresso no recibo também serve para reconhecer a loja pela foto
+  if (telefone && !padroes.includes(telefone)) padroes.push(telefone);
   const id = editandoId || novoId();
-  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, padroes, rotulo, categoria: "" });
-  else lojas.push({ id, nome, padroes, rotulo });
+  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, endereco, telefone, padroes, rotulo });
+  else lojas.push({ id, nome, endereco, telefone, padroes, rotulo });
   salvarLojas();
   // Se veio de um lançamento aberto, volta para ele com a loja nova já escolhida
   const voltarAoRecibo = !editandoId && !$("resultado").classList.contains("oculto");
@@ -925,7 +956,7 @@ function renderLojas() {
     <li>
       <div class="grow" data-editar="${l.id}">
         <div class="t1">${esc(l.nome)}</div>
-        <div class="t2">${esc(l.padroes.join(" · ") || "sem padrões de texto")}</div>
+        <div class="t2">${esc([l.endereco, l.telefone].filter(Boolean).join(" · ") || "sem endereço/telefone")}</div>
       </div>
       <button class="x" data-apagar-loja="${l.id}" aria-label="Apagar">✕</button>
     </li>`).join("");
