@@ -194,20 +194,29 @@
     </div>
   </div>
 
-  <h2>Planilha Google (envio automático)</h2>
+  <h2>Planilha Excel (envio automático)</h2>
   <div class="card">
     <p style="font-size:13px;color:var(--sub);margin:0 0 4px">
-      Cada recibo salvo vira uma linha na sua Planilha Google. Sem internet, o recibo
-      fica guardado aqui e é enviado depois, sozinho. Veja o guia de configuração.
+      Cada recibo salvo é somado na célula do dia e da categoria, na aba do mês
+      (Mai, Jun…), e registrado na aba "Lançamentos". Sem internet, o recibo fica
+      guardado aqui e é enviado depois, sozinho.
     </p>
-    <label class="campo" for="cfgUrl">Endereço do script (termina em /exec)</label>
-    <input id="cfgUrl" type="url" inputmode="url" autocapitalize="off" autocorrect="off"
-           placeholder="https://script.google.com/macros/s/…/exec">
-    <label class="campo" for="cfgSenha">Senha (a mesma do script)</label>
-    <input id="cfgSenha" type="password" autocapitalize="off" autocorrect="off">
+    <label class="campo" for="cfgCliente">ID do aplicativo (cliente)</label>
+    <input id="cfgCliente" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="00000000-0000-0000-0000-000000000000">
+    <label class="campo" for="cfgLocatario">ID do diretório (locatário)</label>
+    <input id="cfgLocatario" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="00000000-0000-0000-0000-000000000000">
+    <label class="campo" for="cfgArquivo">Arquivo no OneDrive (caminho)</label>
+    <input id="cfgArquivo" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="Orçamento 2026.xlsx">
     <div class="linha">
-      <button id="btnTestarNuvem" class="sec">Salvar e testar</button>
+      <button id="btnTestarNuvem" class="sec">Entrar e testar</button>
       <button id="btnEnviarTudo" class="sec">Enviar todos</button>
+    </div>
+    <div class="linha">
+      <button id="btnCatsPlanilha" class="sec">Usar categorias da planilha</button>
+      <button id="btnSair" class="sec">Sair da conta</button>
     </div>
     <div id="avisoNuvem" class="aviso oculto"></div>
   </div>
@@ -827,6 +836,7 @@ $("btnSalvar").onclick = () => {
   const codigo = normalizarCodigo($("rCodigo").value);
   const repetido = codigo && itens.find(i => normalizarCodigo(i.codigo) === codigo);
   if (repetido) { alert(`Este código já foi lançado em ${repetido.data} (${iene(repetido.total)}).`); return; }
+  if (nuvemConfigurada() && !$("rCategoria").value) { alert("Escolha a categoria: ela define a linha da planilha."); return; }
   itens.push({ id: novoId(), lojaId: $("rLoja").value || null, categoria: $("rCategoria").value || "",
                data: $("rData").value, total, codigo, enviado: false });
   salvarItens();
@@ -1068,66 +1078,279 @@ $("arqBackup").onchange = async e => {
   } catch { alert("Arquivo de backup inválido."); }
 };
 
-// ---------------- Planilha Google (envio automático) ----------------
-// Cada recibo tem o campo "enviado": false até a planilha confirmar.
-// Recibos apagados que já estavam na planilha entram na fila LS.apagar.
-// A planilha ignora IDs repetidos, então reenviar é sempre seguro.
-LS.cfg = "recibos.nuvem.v1";
+// ---------------- Planilha Excel no OneDrive (envio automático) ----------------
+// Login Microsoft (MSAL, por redirecionamento: funciona no app da Tela de Início)
+// e gravação pela Microsoft Graph.
+// Cada recibo:
+//   1) entra na aba "Lançamentos" (ID, Data, Loja, Categoria, Total, Código, Aba, Célula);
+//   2) é somado na célula [linha da categoria × coluna do dia] da aba do mês;
+//   3) a coluna "Célula" é preenchida — sinal de que a soma foi feita.
+// Reenviar é seguro: um ID que já tem "Célula" preenchida é ignorado.
+// Apagar: desconta o valor da célula anotada e remove a linha de "Lançamentos".
+LS.cfg = "recibos.excel.v1";
 LS.apagar = "recibos.apagarNaNuvem.v1";
-let cfgNuvem = { url: "", senha: "" };
-try { cfgNuvem = JSON.parse(localStorage.getItem(LS.cfg)) || cfgNuvem; } catch {}
+const MSAL_SRC = "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js";
+const ESCOPOS = ["User.Read", "Files.ReadWrite"];
+const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const ABA_LISTA = "Lançamentos";
+const CAB_LISTA = ["ID", "Data", "Loja", "Categoria", "Total", "Código", "Aba", "Célula"];
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+let cfgNuvem = { cliente: "", locatario: "", arquivo: "Orçamento 2026.xlsx" };
+try { cfgNuvem = { ...cfgNuvem, ...(JSON.parse(localStorage.getItem(LS.cfg)) || {}) }; } catch {}
 let filaApagar = carregar(LS.apagar);
 let enviando = false;
 let ultimoErroNuvem = "";
+let msalApp = null;      // Promise do PublicClientApplication
 
-const nuvemConfigurada = () => /^https:\/\/script\.google(usercontent)?\.com\//.test(cfgNuvem.url) && !!cfgNuvem.senha;
+const nuvemConfigurada = () => GUID.test(cfgNuvem.cliente) && GUID.test(cfgNuvem.locatario) && !!cfgNuvem.arquivo;
 
-// Envia um pedido ao script. Content-Type text/plain evita a checagem CORS extra
-// (preflight), que o Google Apps Script não aceita.
-async function chamarPlanilha(corpo) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 25000);
+// ---- Login ----
+function iniciarMsal() {
+  if (!msalApp) msalApp = criarMsal().catch(e => { msalApp = null; throw e; });
+  return msalApp;
+}
+async function criarMsal() {
+  await carregarScript(MSAL_SRC);
+  if (!window.msal) throw new Error("Sem conexão (não carregou o login da Microsoft).");
+  const app = new msal.PublicClientApplication({
+    auth: { clientId: cfgNuvem.cliente, authority: "https://login.microsoftonline.com/" + cfgNuvem.locatario,
+            redirectUri: location.origin + location.pathname },
+    cache: { cacheLocation: "localStorage" }
+  });
+  await app.initialize();
+  const volta = await app.handleRedirectPromise();     // chegando de volta do login
+  if (volta?.account) app.setActiveAccount(volta.account);
+  else if (!app.getActiveAccount() && app.getAllAccounts()[0]) app.setActiveAccount(app.getAllAccounts()[0]);
+  return app;
+}
+
+// interativo=true: se precisar de login, vai para a página da Microsoft.
+async function obterToken(interativo) {
+  const app = await iniciarMsal();
+  const conta = app.getActiveAccount();
+  if (!conta) {
+    if (interativo) { await app.loginRedirect({ scopes: ESCOPOS }); }
+    throw new Error("Toque em \"Entrar e testar\" para entrar na conta Microsoft.");
+  }
   try {
-    const r = await fetch(cfgNuvem.url, {
-      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ senha: cfgNuvem.senha, ...corpo }), signal: ctrl.signal
-    });
-    let d;
-    try { d = await r.json(); }
-    catch { throw new Error("Resposta inesperada. Confira o endereço e se o acesso está como \"Qualquer pessoa\"."); }
-    if (!d.ok) throw new Error(d.erro || "Erro na planilha.");
+    return (await app.acquireTokenSilent({ scopes: ESCOPOS, account: conta })).accessToken;
+  } catch (e) {
+    if (interativo) { await app.acquireTokenRedirect({ scopes: ESCOPOS, account: conta }); }
+    if (e instanceof TypeError || /network|fetch/i.test(e.errorCode || e.message)) throw new Error("Sem conexão com a Microsoft.");
+    throw new Error("O login expirou. Toque em \"Entrar e testar\".");
+  }
+}
+
+// ---- Graph ----
+let sessao = null;   // { token, id }
+const baseLivro = () => "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+  cfgNuvem.arquivo.split("/").filter(Boolean).map(encodeURIComponent).join("/") + ":/workbook";
+const abaUrl = nome => `${baseLivro()}/worksheets('${encodeURIComponent(nome.replace(/'/g, "''"))}')`;
+
+async function graph(metodo, url, corpo) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const h = { Authorization: "Bearer " + sessao.token };
+    if (sessao.id) h["workbook-session-id"] = sessao.id;
+    if (corpo !== undefined) h["Content-Type"] = "application/json";
+    const r = await fetch(url, { method: metodo, headers: h, signal: ctrl.signal,
+                                 body: corpo === undefined ? undefined : JSON.stringify(corpo) });
+    if (r.status === 204) return {};
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 404) throw new Error(`Não achei "${cfgNuvem.arquivo}" no OneDrive (ou a aba pedida).`);
+      if (r.status === 401) { throw new Error("O login expirou. Toque em \"Entrar e testar\"."); }
+      if (r.status === 423 || r.status === 409) throw new Error("A planilha está ocupada. Tento de novo depois.");
+      throw new Error(d.error?.message || `Erro ${r.status} no Excel.`);
+    }
     return d;
   } catch (e) {
-    if (e.name === "AbortError") throw new Error("A planilha demorou demais para responder.");
-    if (e instanceof TypeError) throw new Error("Sem conexão com a planilha.");
+    if (e.name === "AbortError") throw new Error("O Excel demorou demais para responder.");
+    if (e instanceof TypeError) throw new Error("Sem conexão com o Excel.");
     throw e;
   } finally { clearTimeout(t); }
 }
 
+async function abrirSessao(interativo) {
+  sessao = { token: await obterToken(interativo), id: null };
+  const d = await graph("POST", baseLivro() + "/createSession", { persistChanges: true });
+  sessao.id = d.id;
+}
+async function fecharSessao() {
+  if (sessao?.id) { try { await graph("POST", baseLivro() + "/closeSession", {}); } catch {} }
+  sessao = null;
+}
+
+// ---- Leitura e escrita de células ----
+function colLetra(n) { let s = ""; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; } return s; }
+function colNum(l) { let n = 0; for (const c of l) n = n * 26 + c.charCodeAt(0) - 64; return n - 1; }
+// "Ago!A1:AG59" → { linha0: 0, col0: 0 }
+function inicioDe(endereco) {
+  const m = /!?\$?([A-Z]+)\$?(\d+)/.exec(endereco.split("!").pop());
+  return { col0: colNum(m[1]), linha0: +m[2] - 1 };
+}
+const normCat = s => String(s ?? "").normalize("NFKC").trim().toLowerCase();
+
+async function lerAba(nome) {
+  const d = await graph("GET", abaUrl(nome) + "/usedRange?$select=address,values,formulas");
+  return { ...d, ...inicioDe(d.address) };
+}
+
+let abasCache = null;
+async function nomesDasAbas() {
+  if (!abasCache) abasCache = (await graph("GET", baseLivro() + "/worksheets?$select=name")).value.map(w => w.name);
+  return abasCache;
+}
+
+// Cria a aba do mês copiando a "Modelo" (fórmulas, formato dos números, larguras).
+async function criarAbaDoMes(nome, ano, mes) {
+  const abas = await nomesDasAbas();
+  if (!abas.includes("Modelo")) throw new Error(`Falta a aba "${nome}" e não há aba "Modelo" para copiar.`);
+  const m = await graph("GET", abaUrl("Modelo") + "/usedRange?$select=address,formulas,numberFormat,columnCount");
+  await graph("POST", baseLivro() + "/worksheets/add", { name: nome });
+  abasCache.push(nome);
+  const ini = inicioDe(m.address);
+  const formulas = m.formulas.map(l => l.slice());
+  // Linha 1 = dias, linha 2 = dia da semana (só até o último dia do mês)
+  const ultimo = new Date(ano, mes, 0).getDate();
+  const r1 = formulas.findIndex(l => normCat(l[0]) === "dia");
+  if (r1 >= 0) formulas[r1].forEach((v, c) => {
+    if (c === 0 || typeof v !== "number") return;
+    if (v > ultimo) { formulas[r1][c] = ""; if (formulas[r1 + 1]) formulas[r1 + 1][c] = ""; }
+    else if (formulas[r1 + 1] && !formulas[r1 + 1][c]) formulas[r1 + 1][c] = SEMANA[new Date(ano, mes - 1, v).getDay()];
+  });
+  await graph("PATCH", `${abaUrl(nome)}/range(address='${m.address.split("!").pop()}')`,
+              { formulas, numberFormat: m.numberFormat });
+  try {
+    await graph("PATCH", `${abaUrl(nome)}/range(address='A:A')/format`, { columnWidth: 100 });
+    await graph("PATCH", `${abaUrl(nome)}/range(address='A:A')/format/font`, { bold: true });
+    await graph("PATCH", `${abaUrl(nome)}/range(address='${colLetra(ini.col0 + 1)}1:${colLetra(ini.col0 + m.columnCount - 1)}2')/format/font`, { bold: true });
+  } catch {}   // formatação é só capricho
+}
+
+// Soma (ou desconta) um valor numa célula, mantendo o histórico na fórmula: =1140+300
+function formulaSomada(atual, v) {
+  if (atual === "" || atual === null || atual === 0) return v;
+  if (typeof atual === "number") return `=${atual}+${v}`;
+  const s = String(atual);
+  if (s.startsWith("=")) return `${s}+${v}`;
+  if (/^-?\d+(\.\d+)?$/.test(s.trim())) return `=${s.trim()}+${v}`;
+  throw new Error(`A célula tem texto ("${s}"), não um valor.`);
+}
+function formulaDescontada(atual, v) {
+  if (typeof atual === "number") return atual === v ? "" : `=${atual}-${v}`;
+  const s = String(atual ?? "");
+  if (/^=\d+(\.\d+)?([+-]\d+(\.\d+)?)*$/.test(s)) {           // só números: tira a parcela
+    const partes = s.slice(1).match(/[+-]?\d+(\.\d+)?/g).map(Number);
+    const k = partes.indexOf(v);
+    if (k >= 0) {
+      partes.splice(k, 1);
+      if (!partes.length) return "";
+      if (partes.length === 1 && partes[0] >= 0) return partes[0];
+      return "=" + partes.map((p, i) => (i && p >= 0 ? "+" : "") + p).join("");
+    }
+  }
+  if (s === "") return -v;
+  return s.startsWith("=") ? `${s}-${v}` : `=${s}-${v}`;
+}
+
+async function alterarCelula(aba, endereco, fn) {
+  const url = `${abaUrl(aba)}/range(address='${endereco}')`;
+  const d = await graph("GET", url + "?$select=formulas");
+  await graph("PATCH", url, { formulas: [[fn(d.formulas[0][0])]] });
+}
+
+// ---- Aba "Lançamentos" ----
+async function lerLista() {
+  const abas = await nomesDasAbas();
+  if (!abas.includes(ABA_LISTA)) {
+    await graph("POST", baseLivro() + "/worksheets/add", { name: ABA_LISTA });
+    abas.push(ABA_LISTA);
+    await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A1:H1')`, { values: [CAB_LISTA] });
+    try { await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A1:H1')/format/font`, { bold: true }); } catch {}
+  }
+  const d = await lerAba(ABA_LISTA);
+  const linhas = new Map();    // id → { linha (1-based), aba, celula, total }
+  d.values.forEach((l, i) => {
+    const id = String(l[0] ?? "");
+    if (id && id !== "ID") linhas.set(id, { linha: d.linha0 + i + 1, aba: l[6], celula: l[7], total: Number(l[4]) || 0 });
+  });
+  return { linhas, proxima: d.linha0 + d.values.length + 1 };
+}
+
+// ---- Gravar um recibo ----
+async function gravarRecibo(i, lista, gradeCache) {
+  const reg = lista.linhas.get(i.id);
+  if (reg?.celula) return;                                   // já estava completo
+  if (!i.categoria) throw new Error("Há recibo sem categoria. Escolha uma categoria nele.");
+  const [ano, mes, dia] = (i.data || "").split("-").map(Number);
+  if (!ano || !mes || !dia) throw new Error("Há recibo sem data.");
+  const aba = MESES[mes - 1];
+  if (!(await nomesDasAbas()).includes(aba)) await criarAbaDoMes(aba, ano, mes);
+  if (!gradeCache[aba]) gradeCache[aba] = await lerAba(aba);
+  const g = gradeCache[aba];
+  const r = g.values.findIndex(l => normCat(l[0]) === normCat(i.categoria));
+  if (r < 0) throw new Error(`A categoria "${i.categoria}" não existe na aba ${aba}. Use as categorias da planilha.`);
+  const rDia = g.values.findIndex(l => normCat(l[0]) === "dia");
+  const c = (g.values[rDia >= 0 ? rDia : 0] || []).findIndex((v, k) => k > 0 && Number(v) === dia);
+  if (c < 0) throw new Error(`Não achei a coluna do dia ${dia} na aba ${aba}.`);
+  const endereco = colLetra(g.col0 + c) + (g.linha0 + r + 1);
+
+  // 1) linha em Lançamentos (sem "Célula" ainda)
+  let linha = reg?.linha;
+  if (!linha) {
+    linha = lista.proxima++;
+    await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A${linha}:H${linha}')`, { values: [[
+      i.id, i.data, lojaPorId(i.lojaId)?.nome || "Não identificada", i.categoria, i.total,
+      i.codigo ? "'" + i.codigo : "", aba, ""]] });
+    lista.linhas.set(i.id, { linha, aba, celula: "", total: i.total });
+  }
+  // 2) soma na grade
+  await alterarCelula(aba, endereco, atual => formulaSomada(atual, i.total));
+  // 3) anota a célula
+  await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='G${linha}:H${linha}')`, { values: [[aba, endereco]] });
+  lista.linhas.get(i.id).celula = endereco;
+}
+
+// ---- Apagar um recibo ----
+async function apagarRecibo(id, lista) {
+  const reg = lista.linhas.get(id);
+  if (!reg) return;                                          // não estava lá
+  if (reg.celula && reg.aba) await alterarCelula(reg.aba, reg.celula, atual => formulaDescontada(atual, reg.total));
+  await graph("POST", `${abaUrl(ABA_LISTA)}/range(address='A${reg.linha}:H${reg.linha}')/delete`, { shift: "Up" });
+  lista.linhas.delete(id);
+  for (const r of lista.linhas.values()) if (r.linha > reg.linha) r.linha--;
+  lista.proxima--;
+}
+
 // Envia tudo o que está pendente (apagamentos e recibos novos).
-async function sincronizar() {
+async function sincronizar(interativo = false) {
   if (enviando || !nuvemConfigurada()) { atualizarStatusNuvem(); return; }
+  const pendentes = itens.filter(i => !i.enviado);
+  if (!interativo && !filaApagar.length && !pendentes.length) { atualizarStatusNuvem(); return; }
   enviando = true; atualizarStatusNuvem();
   try {
-    if (filaApagar.length) {
-      const d = await chamarPlanilha({ acao: "apagar", ids: filaApagar });
-      filaApagar = filaApagar.filter(id => !d.apagados.includes(id));
-      gravar(LS.apagar, filaApagar);
+    abasCache = null;
+    await abrirSessao(interativo);
+    const lista = await lerLista();
+    for (const id of filaApagar.slice()) {
+      await apagarRecibo(id, lista);
+      filaApagar = filaApagar.filter(x => x !== id); gravar(LS.apagar, filaApagar);
     }
-    const pendentes = itens.filter(i => !i.enviado);
-    // Em lotes de 50, para não estourar o tempo do script
-    for (let k = 0; k < pendentes.length; k += 50) {
-      const lote = pendentes.slice(k, k + 50).map(i => ({ id: i.id, data: i.data,
-        loja: lojaPorId(i.lojaId)?.nome || "Não identificada", categoria: i.categoria, total: i.total, codigo: i.codigo || "" }));
-      const d = await chamarPlanilha({ acao: "adicionar", recibos: lote });
-      const ok = new Set(d.gravados);
-      itens.forEach(i => { if (ok.has(i.id)) i.enviado = true; });
-      salvarItens();
+    const grade = {};
+    for (const i of pendentes) {
+      await gravarRecibo(i, lista, grade);
+      i.enviado = true; salvarItens(); atualizarStatusNuvem();
     }
     ultimoErroNuvem = "";
   } catch (e) {
+    console.error(e);
     ultimoErroNuvem = e.message;
   } finally {
+    await fecharSessao();
     enviando = false;
     atualizarStatusNuvem();
   }
@@ -1138,8 +1361,8 @@ function atualizarStatusNuvem() {
   if (!nuvemConfigurada()) { el.classList.add("oculto"); return; }
   const n = itens.filter(i => !i.enviado).length + filaApagar.length;
   el.classList.remove("oculto");
-  if (enviando) { el.className = "aviso"; el.textContent = "☁️ Enviando para a planilha…"; }
-  else if (!n) { el.className = "aviso ok"; el.textContent = "☁️ Tudo enviado para a planilha."; }
+  if (enviando) { el.className = "aviso"; el.textContent = "☁️ Enviando para o Excel…"; }
+  else if (!n) { el.className = "aviso ok"; el.textContent = "☁️ Tudo enviado para o Excel."; }
   else { el.className = "aviso nao";
          el.textContent = `☁️ ${n} ${n === 1 ? "alteração aguardando" : "alterações aguardando"} envio` +
                           (ultimoErroNuvem ? ` — ${ultimoErroNuvem}` : "."); }
@@ -1148,39 +1371,106 @@ function atualizarStatusNuvem() {
     s.classList.toggle("oculto", !!itens.find(i => i.id === s.dataset.pendente)?.enviado));
 }
 
-$("btnTestarNuvem").onclick = async () => {
-  cfgNuvem = { url: $("cfgUrl").value.trim(), senha: $("cfgSenha").value };
-  gravar(LS.cfg, cfgNuvem);
+function avisoExcel(classe, texto) {
   const av = $("avisoNuvem");
-  av.classList.remove("oculto");
-  if (!nuvemConfigurada()) {
-    av.className = "aviso nao";
-    av.textContent = "Preencha o endereço (https://script.google.com/…/exec) e a senha.";
-    return;
-  }
-  av.className = "aviso"; av.textContent = "Testando…";
+  av.classList.remove("oculto"); av.className = "aviso " + classe; av.textContent = texto;
+}
+
+function lerCamposExcel() {
+  const novo = { cliente: $("cfgCliente").value.trim(), locatario: $("cfgLocatario").value.trim(),
+                 arquivo: $("cfgArquivo").value.trim().replace(/^\/+/, "") || "Orçamento 2026.xlsx" };
+  if (novo.cliente !== cfgNuvem.cliente || novo.locatario !== cfgNuvem.locatario) msalApp = null;
+  cfgNuvem = novo; gravar(LS.cfg, cfgNuvem);
+}
+
+// Categorias = linhas da aba Modelo que têm total (fórmula SUM), sem os totais gerais.
+async function categoriasDaPlanilha() {
+  const abas = await nomesDasAbas();
+  const fonte = abas.includes("Modelo") ? "Modelo" : abas.find(a => MESES.includes(a));
+  if (!fonte) throw new Error("Não achei a aba Modelo nem abas de mês.");
+  const d = await lerAba(fonte);
+  const fora = new Set(["total", "ativos", "passivos", "dia"]);
+  return d.formulas.map((l, r) => ({ nome: String(d.values[r][0] ?? "").trim(),
+                                     temSoma: l.some(f => /SUM\(/i.test(String(f)) && String(f).includes(String(d.linha0 + r + 1))) }))
+          .filter(x => x.nome && x.temSoma && !fora.has(normCat(x.nome))).map(x => x.nome);
+}
+
+async function aplicarCategoriasDaPlanilha() {
+  const cats = await categoriasDaPlanilha();
+  if (!cats.length) throw new Error("Não achei categorias na planilha.");
+  categorias = cats; salvarCats(); renderLojas();
+  opcoesCategoria($("rCategoria"), $("rCategoria").value);
+  return cats.length;
+}
+
+const VOLTAR_TESTE = "recibos.excel.testarAoVoltar";
+async function testarExcel(interativo) {
+  if (enviando) { avisoExcel("", "Aguarde: envio em andamento."); return; }
+  avisoExcel("", "Conectando…");
+  enviando = true;
   try {
-    const d = await chamarPlanilha({ acao: "testar" });
-    av.className = "aviso ok";
-    av.textContent = `Conectado! A planilha tem ${d.linhas} ${d.linhas === 1 ? "recibo" : "recibos"}.`;
-    sincronizar();
-  } catch (e) { av.className = "aviso nao"; av.textContent = e.message; }
+    abasCache = null;
+    if (interativo) localStorage.setItem(VOLTAR_TESTE, "1");   // se for para o login, testa ao voltar
+    await abrirSessao(interativo);
+    localStorage.removeItem(VOLTAR_TESTE);
+    const abas = await nomesDasAbas();
+    let extra = "";
+    if (!localStorage.getItem("recibos.excel.catsImportadas")) {
+      const n = await aplicarCategoriasDaPlanilha();
+      localStorage.setItem("recibos.excel.catsImportadas", "1");
+      extra = ` ${n} categorias copiadas da planilha.`;
+    }
+    avisoExcel("ok", `Conectado! Abas: ${abas.join(", ")}.${extra}`);
+  } catch (e) { avisoExcel("nao", e.message); }
+  finally { await fecharSessao(); enviando = false; }
+  sincronizar();
+}
+$("btnTestarNuvem").onclick = () => {
+  lerCamposExcel();
+  if (!nuvemConfigurada()) { avisoExcel("nao", "Cole os dois IDs (formato 00000000-0000-…) e o nome do arquivo."); return; }
+  testarExcel(true);
+};
+
+$("btnCatsPlanilha").onclick = async () => {
+  if (!nuvemConfigurada()) { alert("Configure e teste o Excel primeiro."); return; }
+  if (!confirm("Trocar a lista de categorias do app pelas linhas da planilha?")) return;
+  if (enviando) { alert("Aguarde o envio terminar."); return; }
+  avisoExcel("", "Lendo categorias…");
+  enviando = true;
+  try {
+    abasCache = null; await abrirSessao(true);
+    const n = await aplicarCategoriasDaPlanilha();
+    avisoExcel("ok", `${n} categorias copiadas da planilha. Confira a categoria padrão de cada loja.`);
+  } catch (e) { avisoExcel("nao", e.message); }
+  finally { await fecharSessao(); }
+};
+
+$("btnSair").onclick = async () => {
+  if (!nuvemConfigurada()) return;
+  if (!confirm("Sair da conta Microsoft neste aparelho?")) return;
+  try { const app = await iniciarMsal(); await app.logoutRedirect({ account: app.getActiveAccount() }); }
+  catch (e) { avisoExcel("nao", e.message); }
 };
 
 $("btnEnviarTudo").onclick = () => {
-  if (!nuvemConfigurada()) { alert("Configure e teste a planilha primeiro."); return; }
-  if (!confirm(`Enviar todos os ${itens.length} recibos? Os que já estão na planilha não são duplicados.`)) return;
+  if (!nuvemConfigurada()) { alert("Configure e teste o Excel primeiro."); return; }
+  if (!confirm(`Enviar todos os ${itens.length} recibos? Os que já estão no Excel não são somados de novo.`)) return;
   itens.forEach(i => { i.enviado = false; }); salvarItens();
-  sincronizar().then(() => { $("avisoNuvem").classList.remove("oculto");
-    $("avisoNuvem").className = ultimoErroNuvem ? "aviso nao" : "aviso ok";
-    $("avisoNuvem").textContent = ultimoErroNuvem || "Todos os recibos estão na planilha."; });
+  sincronizar(true).then(() => avisoExcel(ultimoErroNuvem ? "nao" : "ok",
+                                          ultimoErroNuvem || "Todos os recibos estão no Excel."));
 };
 
-$("cfgUrl").value = cfgNuvem.url;
-$("cfgSenha").value = cfgNuvem.senha;
+$("cfgCliente").value = cfgNuvem.cliente;
+$("cfgLocatario").value = cfgNuvem.locatario;
+$("cfgArquivo").value = cfgNuvem.arquivo;
 // Tenta de novo quando a internet volta ou quando o app volta para a tela
-window.addEventListener("online", sincronizar);
+window.addEventListener("online", () => sincronizar());
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sincronizar(); });
+// Voltando da página de login da Microsoft: conclui o login e envia o pendente
+if (nuvemConfigurada()) iniciarMsal().then(() => {
+  if (localStorage.getItem(VOLTAR_TESTE)) { localStorage.removeItem(VOLTAR_TESTE); mostrarAba("lojas"); testarExcel(false); }
+  else sincronizar();
+}).catch(e => { ultimoErroNuvem = e.message; atualizarStatusNuvem(); });
 
 // ---------------- Glossário visível no app ----------------
 function renderGlossario() {
@@ -1201,7 +1491,6 @@ function renderGlossario() {
 renderGlossario();
 preencherSelectLojas();
 renderLojas();
-sincronizar();   // envia o que ficou pendente da última vez
 if (!armazenamentoOk) alert("Este navegador não está permitindo salvar dados. Os recibos serão perdidos ao fechar a página.");
 </script>
 </body>
