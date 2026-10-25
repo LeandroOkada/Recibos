@@ -964,6 +964,7 @@ function renderRecibos() {
       <div class="grow">
         <div class="t1">${esc(lojaPorId(i.lojaId)?.nome || "Não identificada")}</div>
         <div class="t2">${esc(i.data || "")} · ${esc(i.categoria || "Sem categoria")}</div>
+        ${!i.enviado && i.erroNuvem ? `<div class="t2" style="color:#c0392b">⚠️ ${esc(i.erroNuvem)}</div>` : ""}
       </div>
       <div class="valor">${iene(i.total)}<span data-pendente="${i.id}"
         class="${i.enviado || !nuvemConfigurada() ? "oculto" : ""}" title="Aguardando envio"> ⏳</span></div>
@@ -1097,8 +1098,12 @@ const ABA_LISTA = "Lançamentos";
 const CAB_LISTA = ["ID", "Data", "Loja", "Categoria", "Total", "Código", "Aba", "Célula"];
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-let cfgNuvem = { cliente: "", locatario: "", arquivo: "Orçamento 2026.xlsx" };
-try { cfgNuvem = { ...cfgNuvem, ...(JSON.parse(localStorage.getItem(LS.cfg)) || {}) }; } catch {}
+// IDs do app "Recibos" no Entra (Office One Trading). Não são senhas: sem o login não dão acesso a nada.
+const CFG_PADRAO = { cliente: "5ca56744-7893-42b0-853c-56325e357120",
+                     locatario: "f54173de-c07f-475c-8903-ddd5193db612", arquivo: "Orçamento 2026.xlsx" };
+let cfgNuvem = { ...CFG_PADRAO };
+try { const c = JSON.parse(localStorage.getItem(LS.cfg)) || {};
+      for (const k in c) if (c[k]) cfgNuvem[k] = c[k]; } catch {}
 let filaApagar = carregar(LS.apagar);
 let enviando = false;
 let ultimoErroNuvem = "";
@@ -1285,18 +1290,19 @@ async function lerLista() {
 async function gravarRecibo(i, lista, gradeCache) {
   const reg = lista.linhas.get(i.id);
   if (reg?.celula) return;                                   // já estava completo
-  if (!i.categoria) throw new Error("Há recibo sem categoria. Escolha uma categoria nele.");
+  const doRecibo = msg => Object.assign(new Error(msg), { doRecibo: true });   // problema só deste recibo
+  if (!i.categoria) throw doRecibo("Há recibo sem categoria.");
   const [ano, mes, dia] = (i.data || "").split("-").map(Number);
-  if (!ano || !mes || !dia) throw new Error("Há recibo sem data.");
+  if (!ano || !mes || !dia) throw doRecibo("Há recibo sem data.");
   const aba = MESES[mes - 1];
   if (!(await nomesDasAbas()).includes(aba)) await criarAbaDoMes(aba, ano, mes);
   if (!gradeCache[aba]) gradeCache[aba] = await lerAba(aba);
   const g = gradeCache[aba];
   const r = g.values.findIndex(l => normCat(l[0]) === normCat(i.categoria));
-  if (r < 0) throw new Error(`A categoria "${i.categoria}" não existe na aba ${aba}. Use as categorias da planilha.`);
+  if (r < 0) throw doRecibo(`A categoria "${i.categoria}" não existe na aba ${aba} — crie a linha na planilha.`);
   const rDia = g.values.findIndex(l => normCat(l[0]) === "dia");
   const c = (g.values[rDia >= 0 ? rDia : 0] || []).findIndex((v, k) => k > 0 && Number(v) === dia);
-  if (c < 0) throw new Error(`Não achei a coluna do dia ${dia} na aba ${aba}.`);
+  if (c < 0) throw doRecibo(`Não achei a coluna do dia ${dia} na aba ${aba}.`);
   const endereco = colLetra(g.col0 + c) + (g.linha0 + r + 1);
 
   // 1) linha em Lançamentos (sem "Célula" ainda)
@@ -1309,7 +1315,8 @@ async function gravarRecibo(i, lista, gradeCache) {
     lista.linhas.set(i.id, { linha, aba, celula: "", total: i.total });
   }
   // 2) soma na grade
-  await alterarCelula(aba, endereco, atual => formulaSomada(atual, i.total));
+  try { await alterarCelula(aba, endereco, atual => formulaSomada(atual, i.total)); }
+  catch (e) { if (/tem texto/.test(e.message)) e.doRecibo = true; throw e; }
   // 3) anota a célula
   await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='G${linha}:H${linha}')`, { values: [[aba, endereco]] });
   lista.linhas.get(i.id).celula = endereco;
@@ -1341,11 +1348,18 @@ async function sincronizar(interativo = false) {
       filaApagar = filaApagar.filter(x => x !== id); gravar(LS.apagar, filaApagar);
     }
     const grade = {};
+    const problemas = [];
     for (const i of pendentes) {
-      await gravarRecibo(i, lista, grade);
-      i.enviado = true; salvarItens(); atualizarStatusNuvem();
+      try {
+        await gravarRecibo(i, lista, grade);
+        i.enviado = true; delete i.erroNuvem;
+      } catch (e) {
+        if (!e.doRecibo) throw e;              // sem internet, login etc.: para tudo e tenta depois
+        i.erroNuvem = e.message; problemas.push(e.message);   // só este recibo espera; os outros seguem
+      }
+      salvarItens(); atualizarStatusNuvem();
     }
-    ultimoErroNuvem = "";
+    ultimoErroNuvem = problemas.length ? problemas[0] + (problemas.length > 1 ? ` (+${problemas.length - 1})` : "") : "";
   } catch (e) {
     console.error(e);
     ultimoErroNuvem = e.message;
