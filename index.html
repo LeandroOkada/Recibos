@@ -173,8 +173,6 @@
       O melhor padrão é o nº de registro (T + 13 dígitos) ou o telefone.
       Nomes em katakana/kanji também funcionam, mas o OCR erra mais.
     </p>
-    <label class="campo" for="lCategoria">Categoria padrão</label>
-    <select id="lCategoria"></select>
     <label class="campo" for="lRotulo">Palavra do total (opcional)</label>
     <input id="lRotulo" placeholder="Ex.: お会計 (conta), ご請求額 (valor cobrado)">
     <div class="linha">
@@ -583,26 +581,35 @@ function preencherSelectLojas(selecionada) {
     `<option value="__nova__">+ Nova loja…</option>`;
 }
 
+// Grupos da planilha (Básico, Conforto… Receita), guardados ao importar as categorias.
+LS.grupos = "recibos.grupos.v1";
+let gruposCat = {};    // { categoria: grupo }
+try { gruposCat = JSON.parse(localStorage.getItem(LS.grupos)) || {}; } catch {}
 function opcoesCategoria(sel, selecionada) {
   const lista = categorias.slice();
   if (selecionada && !lista.includes(selecionada)) lista.push(selecionada);
-  sel.innerHTML = `<option value="">— sem categoria —</option>` +
-    lista.map(c => `<option ${c === selecionada ? "selected" : ""}>${esc(c)}</option>`).join("");
+  const op = c => `<option ${c === selecionada ? "selected" : ""}>${esc(c)}</option>`;
+  let html = `<option value="">— escolha a categoria —</option>`;
+  const ordem = [];
+  for (const c of lista) { const g = gruposCat[c] || ""; if (!ordem.includes(g)) ordem.push(g); }
+  for (const g of ordem) {
+    const itensG = lista.filter(c => (gruposCat[c] || "") === g).map(op).join("");
+    html += g ? `<optgroup label="${esc(g)}">${itensG}</optgroup>` : itensG;
+  }
+  sel.innerHTML = html;
 }
 
-// Ao trocar a loja no formulário, a categoria acompanha a padrão da loja.
-// A opção "+ Nova loja…" cria a loja na hora, só com nome e categoria.
+// A loja não define categoria: uma konbini vende comida, higiene, recebe conta de luz…
+// A categoria é escolhida em cada recibo. "+ Nova loja…" cria a loja na hora, só com o nome.
 $("rLoja").onchange = () => {
   if ($("rLoja").value === "__nova__") {
     const nome = (prompt("Nome da nova loja:") || "").trim();
     if (!nome) { preencherSelectLojas(""); return; }
-    const l = { id: novoId(), nome, padroes: [], rotulo: "", categoria: $("rCategoria").value || "" };
+    const l = { id: novoId(), nome, padroes: [], rotulo: "" };
     lojas.push(l); salvarLojas();
     preencherSelectLojas(l.id);
     return;
   }
-  const l = lojaPorId($("rLoja").value);
-  if (l && l.categoria) opcoesCategoria($("rCategoria"), l.categoria);
 };
 
 // ---------------- Formulário de lançamento ----------------
@@ -618,7 +625,7 @@ function abrirFormulario({ codigo = "", lojaId = "", categoria, data, total, avi
   const loja = lojaPorId(lojaId);
   $("rCodigo").value = codigo;
   preencherSelectLojas(loja?.id);
-  opcoesCategoria($("rCategoria"), categoria ?? loja?.categoria ?? "");
+  opcoesCategoria($("rCategoria"), categoria ?? "");
   $("rData").value = data || hoje();
   $("rTotal").value = total ?? "";
   $("statusValor").textContent = "";
@@ -820,7 +827,7 @@ $("arquivoValor").onchange = async e => {
     const lidos = [];
     if (total) { $("rTotal").value = total; lidos.push("total " + iene(total)); }
     if (data && !lanc.dataDoCodigo) { $("rData").value = data; lidos.push("data"); }
-    if (!$("rLoja").value && loja) { preencherSelectLojas(loja.id); opcoesCategoria($("rCategoria"), loja.categoria || ""); lidos.push("loja"); }
+    if (!$("rLoja").value && loja) { preencherSelectLojas(loja.id); lidos.push("loja"); }
     lanc.texto = ultimoTexto = texto;
     $("statusValor").textContent = lidos.length ? "Lido da foto: " + lidos.join(", ") + ". Confira."
                                                 : "Não encontrei o total na foto. Digite o valor.";
@@ -860,7 +867,6 @@ function editarLoja(id, sugestoes) {
   $("lNome").value = l ? l.nome : "";
   $("lChaves").value = l ? l.padroes.join("\n") : (sugestoes || []).join("\n");
   $("lRotulo").value = l ? (l.rotulo || "") : "";
-  opcoesCategoria($("lCategoria"), l ? (l.categoria || "") : ($("rCategoria").value || ""));
   $("btnCancelarLoja").classList.toggle("oculto", !l && !sugestoes);
   $("formLoja").scrollIntoView({ behavior: "smooth" });
   $("lNome").focus();
@@ -875,10 +881,9 @@ $("btnSalvarLoja").onclick = () => {
   // Padrões de texto são opcionais: lojas lançadas por código de barras
   // são reconhecidas pelo padrão aprendido do código.
   const rotulo = $("lRotulo").value.trim();
-  const categoria = $("lCategoria").value;
   const id = editandoId || novoId();
-  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, padroes, rotulo, categoria });
-  else lojas.push({ id, nome, padroes, rotulo, categoria });
+  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, padroes, rotulo, categoria: "" });
+  else lojas.push({ id, nome, padroes, rotulo });
   salvarLojas();
   // Se veio de um lançamento aberto, volta para ele com a loja nova já escolhida
   const voltarAoRecibo = !editandoId && !$("resultado").classList.contains("oculto");
@@ -888,7 +893,6 @@ $("btnSalvarLoja").onclick = () => {
   if (voltarAoRecibo) {
     mostrarAba("ler");
     preencherSelectLojas(id);
-    if (categoria) opcoesCategoria($("rCategoria"), categoria);
   }
 };
 
@@ -915,14 +919,13 @@ $("btnAddCategoria").onclick = () => {
 
 function renderLojas() {
   renderCategorias();
-  if (!editandoId) opcoesCategoria($("lCategoria"), $("lCategoria").value);
   const ul = $("listaLojas");
   if (!lojas.length) { ul.innerHTML = `<li class="vazio" style="display:block">Nenhuma loja cadastrada.</li>`; return; }
   ul.innerHTML = lojas.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(l => `
     <li>
       <div class="grow" data-editar="${l.id}">
         <div class="t1">${esc(l.nome)}</div>
-        <div class="t2">${esc([l.categoria || "sem categoria"].concat(l.padroes).join(" · "))}</div>
+        <div class="t2">${esc(l.padroes.join(" · ") || "sem padrões de texto")}</div>
       </div>
       <button class="x" data-apagar-loja="${l.id}" aria-label="Apagar">✕</button>
     </li>`).join("");
@@ -1404,15 +1407,22 @@ async function categoriasDaPlanilha() {
   if (!fonte) throw new Error("Não achei a aba Modelo nem abas de mês.");
   const d = await lerAba(fonte);
   const fora = new Set(["total", "ativos", "passivos", "dia"]);
-  return d.formulas.map((l, r) => ({ nome: String(d.values[r][0] ?? "").trim(),
-                                     temSoma: l.some(f => /SUM\(/i.test(String(f)) && String(f).includes(String(d.linha0 + r + 1))) }))
-          .filter(x => x.nome && x.temSoma && !fora.has(normCat(x.nome))).map(x => x.nome);
+  const res = []; let grupo = "";
+  d.formulas.forEach((l, r) => {
+    const nome = String(d.values[r][0] ?? "").trim();
+    if (!nome || fora.has(normCat(nome))) return;
+    const temSoma = l.some(f => /SUM\(/i.test(String(f)) && String(f).includes(String(d.linha0 + r + 1)));
+    if (temSoma) res.push({ nome, grupo }); else grupo = nome;     // linha sem total = título do grupo
+  });
+  return res;
 }
 
 async function aplicarCategoriasDaPlanilha() {
   const cats = await categoriasDaPlanilha();
   if (!cats.length) throw new Error("Não achei categorias na planilha.");
-  categorias = cats; salvarCats(); renderLojas();
+  categorias = cats.map(c => c.nome); salvarCats();
+  gruposCat = Object.fromEntries(cats.map(c => [c.nome, c.grupo])); gravar(LS.grupos, gruposCat);
+  renderLojas();
   opcoesCategoria($("rCategoria"), $("rCategoria").value);
   return cats.length;
 }
@@ -1454,7 +1464,7 @@ $("btnCatsPlanilha").onclick = async () => {
   try {
     abasCache = null; await abrirSessao(true);
     const n = await aplicarCategoriasDaPlanilha();
-    avisoExcel("ok", `${n} categorias copiadas da planilha. Confira a categoria padrão de cada loja.`);
+    avisoExcel("ok", `${n} categorias copiadas da planilha, separadas por grupo.`);
   } catch (e) { avisoExcel("nao", e.message); }
   finally { await fecharSessao(); }
 };
