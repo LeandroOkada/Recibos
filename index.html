@@ -551,7 +551,8 @@ const GRUPOS_PADRAO = [
   ["Financiamento", ["SMBCモビット", "アコム", "プロミス", "ポケットマネー", "楽天", "7銀行カードロン"]],
   ["Receita", ["Salário", "Trade"]],
   ["Social", ["Eventos", "Presentes"]],
-  ["Transporte", ["Vale-Transporte"]]
+  ["Transporte", ["Vale-Transporte"]],
+  ["Pendências", ["Saúde", "Previdência", "Residência"]]
 ];
 const CATEGORIAS_PADRAO = GRUPOS_PADRAO.flatMap(([, cs]) => cs);
 let armazenamentoOk = true;
@@ -1016,7 +1017,21 @@ function renderRecibos() {
 }
 $("filtroMes").onchange = renderRecibos;
 
+// No iPhone (app da Tela de Início) um "download" abre uma tela de pré-visualização da qual
+// não dá para voltar. Por isso usa a folha de Compartilhar (Salvar em Arquivos, Excel, e-mail…).
 function baixar(nome, conteudo, tipo) {
+  try {
+    const arq = new File([conteudo], nome, { type: tipo });
+    if (navigator.canShare && navigator.canShare({ files: [arq] })) {
+      navigator.share({ files: [arq], title: nome }).catch(e => {
+        if (e.name !== "AbortError") baixarLink(nome, conteudo, tipo);   // cancelado = não faz nada
+      });
+      return;
+    }
+  } catch {}
+  baixarLink(nome, conteudo, tipo);
+}
+function baixarLink(nome, conteudo, tipo) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
   a.download = nome;
