@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-title" content="Recibos">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Leitor de Recibos</title>
-<link rel="apple-touch-icon" href="juncao5.png">
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   :root { --bg:#f2f2f7; --card:#fff; --txt:#1c1c1e; --sub:#6e6e73; --line:#d1d1d6;
@@ -29,10 +28,7 @@
   textarea { min-height:96px; resize:vertical; }
   button, .botao { display:block; width:100%; border:0; border-radius:12px; padding:14px;
          font:inherit; font-weight:600; color:#fff; background:var(--azul); text-align:center; cursor:pointer; }
-  button.sec, .botao.sec { background:var(--campo); color:var(--azul); }
-  #leitor { width:100%; border-radius:10px; overflow:hidden; margin-top:12px; background:#000; }
-  #leitor video { width:100% !important; }
-  .aviso + .aviso { margin-top:6px; }
+  button.sec { background:var(--campo); color:var(--azul); }
   button.perigo { background:transparent; color:var(--verm); padding:8px; }
   .linha { display:flex; gap:10px; margin-top:12px; }
   .linha > * { flex:1; }
@@ -72,24 +68,15 @@
 </head>
 <body>
 
-<!-- ============ ABA: LANÇAR ============ -->
+<!-- ============ ABA: LER RECIBO ============ -->
 <section id="aba-ler">
-  <h1>Lançar</h1>
-  <div class="card" id="cardInicio">
-    <button id="btnEscanear">▥ Escanear código de barras</button>
-    <div id="leitorBox" class="oculto">
-      <div id="leitor"></div>
-      <div class="linha"><button id="btnPararLeitor" class="sec">Cancelar</button></div>
-    </div>
-    <div id="avisoLeitor" class="aviso nao oculto"></div>
-    <div class="linha">
-      <button id="btnDigitarCodigo" class="sec">⌨️ Digitar código</button>
-      <button id="btnSemCodigo" class="sec">✍️ Sem código</button>
-    </div>
-    <div class="linha">
-      <label class="botao sec" for="arquivo">📷 Ler recibo inteiro pela foto</label>
-    </div>
+  <h1>Ler recibo</h1>
+  <div class="card">
+    <label class="botao" for="arquivo">📷 Fotografar recibo</label>
     <input id="arquivo" type="file" accept="image/*" capture="environment" class="oculto">
+    <p style="font-size:13px;color:var(--sub);margin:10px 2px 0">
+      Dica: recibo esticado, bem iluminado, ocupando toda a foto.
+    </p>
     <img id="foto" class="oculto" alt="">
     <div id="blocoProgresso" class="oculto">
       <div class="progresso"><div id="barra"></div></div>
@@ -98,9 +85,7 @@
   </div>
 
   <div id="resultado" class="card oculto">
-    <div id="avisoLoja"></div>
-    <label class="campo" for="rCodigo">Código de barras</label>
-    <input id="rCodigo" autocapitalize="characters" autocorrect="off" placeholder="(sem código)">
+    <div id="avisoLoja" class="aviso"></div>
     <label class="campo" for="rLoja">Loja</label>
     <select id="rLoja"></select>
     <label class="campo" for="rCategoria">Categoria</label>
@@ -110,18 +95,12 @@
     <label class="campo" for="rTotal">Total (¥)</label>
     <input id="rTotal" type="number" inputmode="numeric" min="0" step="1">
     <div class="linha">
-      <label class="botao sec" for="arquivoValor">📷 Ler valor pela foto</label>
+      <button id="btnSalvar">Salvar recibo</button>
     </div>
-    <input id="arquivoValor" type="file" accept="image/*" capture="environment" class="oculto">
-    <div id="statusValor" style="font-size:13px;color:var(--sub);margin:6px 2px 0"></div>
     <div class="linha">
-      <button id="btnCancelarLanc" class="sec">Cancelar</button>
-      <button id="btnSalvar">Salvar</button>
-    </div>
-    <div class="linha" id="linhaNovaLoja">
       <button id="btnNovaLojaDoRecibo" class="sec">Cadastrar loja a partir deste recibo</button>
     </div>
-    <details id="detTexto">
+    <details>
       <summary>Ver texto reconhecido (com tradução)</summary>
       <pre id="textoOcr"></pre>
     </details>
@@ -145,7 +124,6 @@
       <span id="qtdMes" style="color:var(--sub)"></span>
       <b id="totalMes"></b>
     </div>
-    <div id="statusNuvem" class="aviso oculto"></div>
   </div>
   <h2>Por categoria</h2>
   <div class="card"><ul id="porCategoria" class="lista"></ul></div>
@@ -155,7 +133,7 @@
   <div class="card"><ul id="listaRecibos" class="lista"></ul></div>
   <button id="btnCsv">Exportar para Excel</button>
   <p style="font-size:13px;color:var(--sub);margin:8px 4px 0">
-    Gera um arquivo .xlsx com todos os recibos (Data, Mês, Loja, Categoria, Total, Código)
+    Gera um arquivo .xlsx com todos os recibos (Data, Mês, Loja, Categoria, Total)
     e uma aba de resumo por mês e categoria.
   </p>
 </section>
@@ -167,16 +145,14 @@
     <b id="tituloForm">Nova loja</b>
     <label class="campo" for="lNome">Nome da loja</label>
     <input id="lNome" placeholder="Ex.: Lawson Shibuya">
-    <label class="campo" for="lEndereco">Endereço (opcional)</label>
-    <input id="lEndereco" placeholder="Ex.: 東京都渋谷区…">
-    <label class="campo" for="lTelefone">Telefone (opcional)</label>
-    <input id="lTelefone" type="tel" inputmode="tel" placeholder="Ex.: 03-1234-5678">
-    <label class="campo" for="lChaves">Padrões do texto do recibo (opcional, um por linha)</label>
+    <label class="campo" for="lChaves">Padrões de identificação (um por linha)</label>
     <textarea id="lChaves" placeholder="Ex.:&#10;T1234567890123&#10;03-1234-5678&#10;ローソン  (= Lawson)"></textarea>
     <p style="font-size:12px;color:var(--sub);margin:6px 2px 0">
       O melhor padrão é o nº de registro (T + 13 dígitos) ou o telefone.
       Nomes em katakana/kanji também funcionam, mas o OCR erra mais.
     </p>
+    <label class="campo" for="lCategoria">Categoria padrão</label>
+    <select id="lCategoria"></select>
     <label class="campo" for="lRotulo">Palavra do total (opcional)</label>
     <input id="lRotulo" placeholder="Ex.: お会計 (conta), ご請求額 (valor cobrado)">
     <div class="linha">
@@ -196,33 +172,6 @@
     </div>
   </div>
 
-  <h2>Planilha Excel (envio automático)</h2>
-  <div class="card">
-    <p style="font-size:13px;color:var(--sub);margin:0 0 4px">
-      Cada recibo salvo é somado na célula do dia e da categoria, na aba do mês
-      (Mai, Jun…), e registrado na aba "Lançamentos". Sem internet, o recibo fica
-      guardado aqui e é enviado depois, sozinho.
-    </p>
-    <label class="campo" for="cfgCliente">ID do aplicativo (cliente)</label>
-    <input id="cfgCliente" autocapitalize="off" autocorrect="off" spellcheck="false"
-           placeholder="00000000-0000-0000-0000-000000000000">
-    <label class="campo" for="cfgLocatario">ID do diretório (locatário)</label>
-    <input id="cfgLocatario" autocapitalize="off" autocorrect="off" spellcheck="false"
-           placeholder="00000000-0000-0000-0000-000000000000">
-    <label class="campo" for="cfgArquivo">Arquivo no OneDrive (caminho)</label>
-    <input id="cfgArquivo" autocapitalize="off" autocorrect="off" spellcheck="false"
-           placeholder="Orçamento 2026.xlsx">
-    <div class="linha">
-      <button id="btnTestarNuvem" class="sec">Entrar e testar</button>
-      <button id="btnEnviarTudo" class="sec">Enviar todos</button>
-    </div>
-    <div class="linha">
-      <button id="btnCatsPlanilha" class="sec">Usar categorias da planilha</button>
-      <button id="btnSair" class="sec">Sair da conta</button>
-    </div>
-    <div id="avisoNuvem" class="aviso oculto"></div>
-  </div>
-
   <h2>Backup</h2>
   <div class="card">
     <p style="font-size:13px;color:var(--sub);margin:0 0 10px">
@@ -237,7 +186,7 @@
 </section>
 
 <nav>
-  <button data-aba="ler" class="ativo"><span>➕</span>Lançar</button>
+  <button data-aba="ler" class="ativo"><span>📷</span>Ler</button>
   <button data-aba="recibos"><span>🧾</span>Recibos</button>
   <button data-aba="lojas"><span>🏪</span>Lojas</button>
 </nav>
@@ -425,136 +374,12 @@ function identificarLoja(txt, lojas) {
   }
   return melhor;
 }
-// ---------------- Aprendizado de padrões do código de barras ----------------
-// A ideia: cada recibo salvo guarda o código lido + loja + data + valor.
-// Comparando os códigos de uma mesma loja (do mesmo tamanho), o app descobre:
-//   - posições FIXAS  → identificam a loja (ex.: código da loja no começo)
-//   - posição da DATA → se a data do recibo aparece sempre no mesmo lugar do código
-//   - posição do VALOR → idem (comum nos boletos de konbini, 払込票)
-// Nada é guardado à parte: o padrão é recalculado a partir dos recibos salvos,
-// então apagar um recibo lançado errado "desensina" o app.
-
-function normalizarCodigo(s) {
-  return String(s || "").normalize("NFKC").replace(/\s+/g, "").toUpperCase();
-}
-
-// Formas como uma data pode aparecer escrita dentro do código
-function formasDaData(iso) {
-  const [a, m, d] = String(iso || "").split("-");
-  if (!a || !m || !d) return [];
-  const r = String(+a - 2018).padStart(2, "0");   // ano Reiwa (令和): 2026 → 08
-  return [["AAAAMMDD", a + m + d], ["AAMMDD", a.slice(2) + m + d], ["RRMMDD", r + m + d]];
-}
-function formasDoValor(total) {
-  const t = Math.round(+total);
-  if (!(t > 0)) return [];
-  return [6, 7, 8].filter(w => String(t).length <= w).map(w => [w, String(t).padStart(w, "0")]);
-}
-function posicoes(codigo, formas) {       // conjunto "forma@posição" onde cada forma aparece
-  const out = new Set();
-  for (const [f, s] of formas) {
-    let i = codigo.indexOf(s);
-    while (i >= 0) { out.add(f + "@" + i); i = codigo.indexOf(s, i + 1); }
-  }
-  return out;
-}
-const intersecao = conjuntos => conjuntos.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
-
-// Aprende o padrão de UM grupo de amostras (mesma loja, mesmo tamanho de código)
-function aprenderGrupo(amostras) {
-  const n = amostras.length, len = amostras[0].codigo.length;
-  const g = { n, len, fixas: [], data: null, valor: null };
-  if (n < 2) return g;
-  const d = [...intersecao(amostras.map(a => posicoes(a.codigo, formasDaData(a.data))))][0];
-  if (d) { const [f, i] = d.split("@"); g.data = { formato: f, pos: +i, tam: f.length }; }
-  const v = [...intersecao(amostras.map(a => posicoes(a.codigo, formasDoValor(a.total))))][0];
-  if (v) { const [w, i] = v.split("@"); g.valor = { pos: +i, tam: +w }; }
-  const ocupada = p => (g.data && p >= g.data.pos && p < g.data.pos + g.data.tam) ||
-                       (g.valor && p >= g.valor.pos && p < g.valor.pos + g.valor.tam);
-  for (let p = 0; p < len; p++) {
-    if (ocupada(p)) continue;
-    const c = amostras[0].codigo[p];
-    if (amostras.every(a => a.codigo[p] === c)) g.fixas.push([p, c]);
-  }
-  return g;
-}
-
-// Pontua o quanto um código combina com um grupo aprendido.
-// Com poucas amostras, algumas posições parecem fixas por acaso (ex.: nº da transação
-// com o mesmo começo); por isso aceitamos poucas divergências.
-function pontuarGrupo(codigo, g, amostras) {
-  if (g.n === 1) {                                  // só 1 exemplo: compara o começo do código
-    let p = 0; const s = amostras[0].codigo;
-    while (p < s.length && s[p] === codigo[p]) p++;
-    return p >= 4 && p >= s.length * 0.3 ? { pontos: p / 100, confianca: "provavel" } : null;
-  }
-  let certas = 0, erradas = 0;
-  for (const [p, c] of g.fixas) codigo[p] === c ? certas++ : erradas++;
-  if (certas < 4 || erradas > Math.max(1, Math.floor(g.fixas.length * 0.25))) return null;
-  return { pontos: certas - 2 * erradas,
-           confianca: erradas === 0 && g.n >= 3 ? "alta" : "provavel" };
-}
-
-function lerData(codigo, g) {
-  if (!g.data) return null;
-  const s = codigo.substr(g.data.pos, g.data.tam);
-  if (!/^\d+$/.test(s)) return null;
-  const f = g.data.formato;
-  const a = f === "AAAAMMDD" ? +s.slice(0, 4) : f === "AAMMDD" ? 2000 + +s.slice(0, 2) : 2018 + +s.slice(0, 2);
-  return dataValida(a, +s.slice(-4, -2), +s.slice(-2));
-}
-function lerValor(codigo, g) {
-  if (!g.valor) return null;
-  const s = codigo.substr(g.valor.pos, g.valor.tam);
-  return /^\d+$/.test(s) && +s > 0 ? +s : null;
-}
-
-// Função principal: dado um código lido, o que o app já sabe sobre ele?
-//   { repetido: item }                         → este mesmo recibo já foi lançado
-//   { lojaId, confianca, data, valor }         → loja reconhecida pelo padrão
-//   {}                                         → código novo, nada conhecido
-function reconhecerCodigo(codigoBruto, itens) {
-  const codigo = normalizarCodigo(codigoBruto);
-  if (!codigo) return {};
-  const repetido = itens.find(i => i.codigo && normalizarCodigo(i.codigo) === codigo);
-  if (repetido) return { repetido };
-  // Agrupa as amostras por loja, só as do mesmo tamanho
-  const porLoja = {};
-  for (const i of itens) {
-    const c = normalizarCodigo(i.codigo);
-    if (!i.lojaId || c.length !== codigo.length) continue;
-    (porLoja[i.lojaId] = porLoja[i.lojaId] || []).push({ codigo: c, data: i.data, total: i.total });
-  }
-  let melhor = null, empate = false;
-  for (const [lojaId, amostras] of Object.entries(porLoja)) {
-    const g = aprenderGrupo(amostras);
-    const r = pontuarGrupo(codigo, g, amostras);
-    if (!r) continue;
-    if (!melhor || r.pontos > melhor.pontos) { melhor = { lojaId, g, ...r }; empate = false; }
-    else if (r.pontos === melhor.pontos) empate = true;
-  }
-  if (!melhor || empate) return {};
-  return { lojaId: melhor.lojaId, confianca: melhor.confianca,
-           data: lerData(codigo, melhor.g), valor: lerValor(codigo, melhor.g) };
-}
 // PARSER-END ==================================================================
 
 // ---------------- Armazenamento ----------------
 const LS = { lojas: "recibos.lojas.v1", itens: "recibos.itens.v1", cats: "recibos.categorias.v1" };
-// Categorias = linhas da planilha "Orçamento 2026", por grupo (o botão "Usar categorias da planilha" atualiza)
-const GRUPOS_PADRAO = [
-  ["Básico", ["Alimentação", "Aluguel", "Assistência Médica", "Estética", "Gás", "Higiene", "Luz", "Medicamentos", "Pet", "Saneamento", "Utensílios"]],
-  ["Carteira Digital", ["FX Pro", "Suica"]],
-  ["Conforto", ["Aquecimento", "Automático/Restaurante", "Assinaturas", "Compra Online", "Estadia/Spa", "Lavanderia", "Serviços Online"]],
-  ["Comunicação", ["Móvel UQ", "Provedora Au", "Telefônica NTT"]],
-  ["Esporte", ["Equipamentos", "Inscrições", "Mensalidades", "Seguro Esportivo"]],
-  ["Financiamento", ["SMBCモビット", "アコム", "プロミス", "ポケットマネー", "楽天", "7銀行カードロン"]],
-  ["Receita", ["Salário", "Trade"]],
-  ["Social", ["Eventos", "Presentes"]],
-  ["Transporte", ["Vale-Transporte"]],
-  ["Pendências", ["Saúde", "Previdência", "Residência"]]
-];
-const CATEGORIAS_PADRAO = GRUPOS_PADRAO.flatMap(([, cs]) => cs);
+const CATEGORIAS_PADRAO = ["Supermercado", "Conveniência (konbini)", "Restaurante / Café", "Farmácia / Saúde",
+  "Transporte", "Casa / Utilidades", "Vestuário", "Lazer", "Serviços", "Educação", "Outros"];
 let armazenamentoOk = true;
 function carregar(k, padrao = []) {
   try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : padrao.slice(); }
@@ -565,19 +390,10 @@ function gravar(k, v) {
   catch { armazenamentoOk = false; }
 }
 let lojas = carregar(LS.lojas);
-// Loja guarda só dados da empresa: remove a antiga "categoria padrão"
-if (lojas.some(l => "categoria" in l)) { lojas.forEach(l => delete l.categoria); gravar(LS.lojas, lojas); }
 let itens = carregar(LS.itens);
 const salvarLojas = () => gravar(LS.lojas, lojas);
 const salvarItens = () => gravar(LS.itens, itens);
 let categorias = carregar(LS.cats, CATEGORIAS_PADRAO);
-// Lista antiga do app (Supermercado, Konbini…) → troca pelas categorias da planilha
-if (categorias.includes("Conveniência (konbini)") || !categorias.length) { categorias = CATEGORIAS_PADRAO.slice(); gravar(LS.cats, categorias); }
-{ // itens novos da lista embutida entram uma vez (se você remover depois, não voltam)
-  const vistos = carregar("recibos.categorias.vistas.v1", categorias);
-  for (const c of CATEGORIAS_PADRAO) if (!vistos.includes(c)) { vistos.push(c); if (!categorias.includes(c)) categorias.push(c); }
-  gravar(LS.cats, categorias); gravar("recibos.categorias.vistas.v1", vistos);
-}
 const salvarCats = () => gravar(LS.cats, categorias);
 const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -586,9 +402,6 @@ const $ = id => document.getElementById(id);
 const iene = v => "¥" + Math.round(v || 0).toLocaleString("ja-JP");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const lojaPorId = id => lojas.find(l => l.id === id);
-// Data de hoje no fuso do aparelho (toISOString usaria UTC: no Japão, antes das 9h, daria "ontem")
-const hoje = () => { const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 function mostrarAba(nome) {
   for (const a of ["ler", "recibos", "lojas"]) $("aba-" + a).classList.toggle("oculto", a !== nome);
@@ -602,169 +415,28 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => mostrarAb
 function preencherSelectLojas(selecionada) {
   $("rLoja").innerHTML = `<option value="">— não identificada —</option>` +
     lojas.slice().sort((a, b) => a.nome.localeCompare(b.nome))
-      .map(l => `<option value="${l.id}" ${l.id === selecionada ? "selected" : ""}>${esc(l.nome)}</option>`).join("") +
-    `<option value="__nova__">+ Nova loja…</option>`;
+      .map(l => `<option value="${l.id}" ${l.id === selecionada ? "selected" : ""}>${esc(l.nome)}</option>`).join("");
 }
 
-// Grupos da planilha (Básico, Conforto… Receita), guardados ao importar as categorias.
-LS.grupos = "recibos.grupos.v1";
-let gruposCat = {};    // { categoria: grupo }
-try { gruposCat = JSON.parse(localStorage.getItem(LS.grupos)) || {}; } catch {}
-for (const [g, cs] of GRUPOS_PADRAO) for (const c of cs) if (!gruposCat[c]) gruposCat[c] = g;
 function opcoesCategoria(sel, selecionada) {
   const lista = categorias.slice();
   if (selecionada && !lista.includes(selecionada)) lista.push(selecionada);
-  const op = c => `<option ${c === selecionada ? "selected" : ""}>${esc(c)}</option>`;
-  let html = `<option value="">— escolha a categoria —</option>`;
-  const ordem = [];
-  for (const c of lista) { const g = gruposCat[c] || ""; if (!ordem.includes(g)) ordem.push(g); }
-  for (const g of ordem) {
-    const itensG = lista.filter(c => (gruposCat[c] || "") === g).map(op).join("");
-    html += g ? `<optgroup label="${esc(g)}">${itensG}</optgroup>` : itensG;
-  }
-  sel.innerHTML = html;
+  sel.innerHTML = `<option value="">— sem categoria —</option>` +
+    lista.map(c => `<option ${c === selecionada ? "selected" : ""}>${esc(c)}</option>`).join("");
 }
 
-// A loja não define categoria: uma konbini vende comida, higiene, recebe conta de luz…
-// A categoria é escolhida em cada recibo. "+ Nova loja…" cria a loja na hora, só com o nome.
+// Ao trocar a loja no resultado, a categoria acompanha a padrão da loja
 $("rLoja").onchange = () => {
-  if ($("rLoja").value === "__nova__") {
-    const nome = (prompt("Nome da nova loja:") || "").trim();
-    if (!nome) { preencherSelectLojas(""); return; }
-    const l = { id: novoId(), nome, endereco: "", telefone: "", padroes: [], rotulo: "" };
-    lojas.push(l); salvarLojas();
-    preencherSelectLojas(l.id);
-    return;
-  }
+  const l = lojaPorId($("rLoja").value);
+  if (l && l.categoria) opcoesCategoria($("rCategoria"), l.categoria);
 };
 
-// ---------------- Formulário de lançamento ----------------
-// Estado do lançamento atual
-let lanc = { texto: "", dataDoCodigo: false, repetido: null };
-let ultimoTexto = "";   // texto do OCR (usado para cadastrar loja a partir do recibo)
-
-// Abre o formulário já preenchido. avisos = [["ok"|"nao"|"", "texto"], …]
-function abrirFormulario({ codigo = "", lojaId = "", categoria, data, total, avisos = [], texto = "",
-                           dataDoCodigo = false, repetido = null }) {
-  lanc = { texto, dataDoCodigo, repetido };
-  ultimoTexto = texto;
-  const loja = lojaPorId(lojaId);
-  $("rCodigo").value = codigo;
-  preencherSelectLojas(loja?.id);
-  opcoesCategoria($("rCategoria"), categoria ?? "");
-  $("rData").value = data || hoje();
-  $("rTotal").value = total ?? "";
-  $("statusValor").textContent = "";
-  $("avisoLoja").innerHTML = avisos.map(([tipo, t]) => `<div class="aviso ${tipo}">${esc(t)}</div>`).join("");
-  // Recibo repetido: só consulta, não deixa salvar de novo
-  for (const id of ["rCodigo", "rLoja", "rCategoria", "rData", "rTotal"]) $(id).disabled = !!repetido;
-  $("btnSalvar").classList.toggle("oculto", !!repetido);
-  $("btnCancelarLanc").textContent = repetido ? "Fechar" : "Cancelar";
-  // Texto do OCR (só quando houve foto do recibo inteiro)
-  $("detTexto").classList.toggle("oculto", !texto);
-  $("linhaNovaLoja").classList.toggle("oculto", !texto || !!repetido);
-  $("textoOcr").innerHTML = linhasDe(texto).map(l => {
-    const tr = traduzirLinha(l);
-    return esc(l) + (tr ? `\n<span class="trad">  → ${esc(tr)}</span>` : "");
-  }).join("\n");
-  $("cardInicio").classList.add("oculto");
-  $("resultado").classList.remove("oculto");
-  window.scrollTo(0, 0);
-}
-
-function fecharFormulario() {
-  $("resultado").classList.add("oculto");
-  $("cardInicio").classList.remove("oculto");
-  $("foto").classList.add("oculto");
-  $("blocoProgresso").classList.add("oculto");
-  $("avisoLeitor").classList.add("oculto");
-}
-$("btnCancelarLanc").onclick = fecharFormulario;
-
-// Um código foi lido (câmera ou digitado): o que o app já sabe dele?
-function aoLerCodigo(bruto) {
-  const codigo = normalizarCodigo(bruto);
-  if (!codigo) return;
-  const r = reconhecerCodigo(codigo, itens);
-  if (r.repetido) {
-    const i = r.repetido;
-    abrirFormulario({ codigo, lojaId: i.lojaId, categoria: i.categoria, data: i.data, total: i.total,
-      repetido: i, avisos: [["nao", "Este recibo já foi lançado. Os dados abaixo são do lançamento salvo."]] });
-    return;
-  }
-  const loja = lojaPorId(r.lojaId);
-  const avisos = [];
-  if (loja) avisos.push(r.confianca === "alta"
-    ? ["ok", `Loja reconhecida pelo código: ${loja.nome}`]
-    : ["ok", `Loja provável: ${loja.nome} — confira.`]);
-  else avisos.push(["nao", itens.some(i => i.codigo)
-    ? "Código ainda não conhecido. Preencha os dados: da próxima vez o app reconhece esta loja."
-    : "Primeiro código! Preencha os dados: com 2 ou 3 recibos da mesma loja o app aprende o padrão."]);
-  if (r.data) avisos.push(["ok", "Data lida do código."]);
-  if (r.valor) avisos.push(["ok", "Valor lido do código."]);
-  else if (loja) avisos.push(["", "Digite o total ou toque em “Ler valor pela foto”."]);
-  abrirFormulario({ codigo, lojaId: loja?.id, data: r.data, total: r.valor, avisos, dataDoCodigo: !!r.data });
-}
-
-// ---------------- Leitor de código de barras (câmera) ----------------
-// Biblioteca html5-qrcode, carregada só quando o leitor é aberto.
-let leitor = null;
-function carregarScript(src) {
-  return new Promise((ok, falha) => {
-    if (document.querySelector(`script[src="${src}"]`)) return ok();
-    const s = document.createElement("script");
-    s.src = src; s.onload = ok; s.onerror = () => falha(new Error("sem internet"));
-    document.head.appendChild(s);
-  });
-}
-
-function avisoLeitor(t) { $("avisoLeitor").textContent = t; $("avisoLeitor").classList.toggle("oculto", !t); }
-
-$("btnEscanear").onclick = async () => {
-  avisoLeitor("");
-  try {
-    await carregarScript("https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js");
-    const F = Html5QrcodeSupportedFormats;
-    // Formatos comuns no Japão: CODE128 (recibos, boletos GS1-128), ITF, NW-7 (Codabar),
-    // JAN (EAN-13/8, produtos), CODE39 e QR.
-    leitor = leitor || new Html5Qrcode("leitor", { verbose: false,
-      formatsToSupport: [F.CODE_128, F.ITF, F.CODABAR, F.EAN_13, F.EAN_8, F.CODE_39, F.UPC_A, F.QR_CODE],
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-    $("leitorBox").classList.remove("oculto");
-    $("btnEscanear").classList.add("oculto");
-    await leitor.start({ facingMode: "environment" },
-      { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.9), height: Math.floor(Math.min(w, h) * 0.45) }) },
-      async texto => { await pararLeitor(); navigator.vibrate?.(60); aoLerCodigo(texto); },
-      () => {});   // "não achou código neste quadro" — normal, ignora
-  } catch (e) {
-    await pararLeitor();
-    avisoLeitor(/sem internet/.test(e.message)
-      ? "Sem internet para abrir o leitor. Use “Digitar código”."
-      : "Não foi possível abrir a câmera. Permita o acesso à câmera nos ajustes do navegador, ou use “Digitar código”.");
-  }
-};
-
-async function pararLeitor() {
-  try { if (leitor?.isScanning) await leitor.stop(); } catch {}
-  $("leitorBox").classList.add("oculto");
-  $("btnEscanear").classList.remove("oculto");
-}
-$("btnPararLeitor").onclick = pararLeitor;
-
-$("btnDigitarCodigo").onclick = () => {
-  const c = prompt("Digite os números impressos embaixo do código de barras:");
-  if (c && normalizarCodigo(c)) aoLerCodigo(c);
-};
-
-$("btnSemCodigo").onclick = () =>
-  abrirFormulario({ avisos: [["", "Lançamento manual, sem código de barras."]] });
-
-// ---------------- OCR (leitura da foto) ----------------
+// ---------------- OCR ----------------
 let worker = null;
+let ultimoTexto = "";
 
 async function obterWorker() {
   if (worker) return worker;
-  if (typeof Tesseract === "undefined") throw new Error("Leitor de texto não carregou (sem internet?).");
   worker = await Tesseract.createWorker("jpn", 1, {
     logger: m => {
       if (m.status === "recognizing text") progresso(m.progress, "Lendo o texto… " + Math.round(m.progress * 100) + "%");
@@ -774,12 +446,10 @@ async function obterWorker() {
   return worker;
 }
 
-// Mostra o progresso no bloco visível (tela inicial ou formulário)
 function progresso(p, msg) {
   $("barra").style.width = Math.round((p || 0) * 100) + "%";
-  if (msg) { $("status").textContent = msg; if (lendoValor) $("statusValor").textContent = msg; }
+  if (msg) $("status").textContent = msg;
 }
-let lendoValor = false;
 
 // Reduz, converte para cinza e aumenta o contraste — melhora bastante o OCR
 function prepararImagem(img) {
@@ -806,76 +476,61 @@ function prepararImagem(img) {
   return cv;
 }
 
-// Lê o texto de uma foto (arquivo) e devolve o texto reconhecido
-async function lerTextoDaFoto(arquivo, img) {
-  img.src = URL.createObjectURL(arquivo);
-  await img.decode();
-  const w = await obterWorker();
-  const { data } = await w.recognize(prepararImagem(img));
-  return data.text || "";
-}
-
-// Caminho 1: foto do recibo inteiro (sem código)
 $("arquivo").onchange = async e => {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f) return;
+  const url = URL.createObjectURL(f);
   const img = $("foto");
-  img.classList.remove("oculto");
+  img.src = url; img.classList.remove("oculto");
+  $("resultado").classList.add("oculto");
   $("blocoProgresso").classList.remove("oculto");
   progresso(0.02, "Abrindo a foto…");
   try {
-    const texto = await lerTextoDaFoto(f, img);
+    await img.decode();
+    const cv = prepararImagem(img);
+    const w = await obterWorker();
+    const { data } = await w.recognize(cv);
+    ultimoTexto = data.text || "";
     progresso(1, "Pronto.");
-    const loja = identificarLoja(texto, lojas);
-    abrirFormulario({ lojaId: loja?.id, data: extrairData(texto), total: extrairTotal(texto, loja?.rotulo),
-      texto, avisos: [loja ? ["ok", "Loja identificada pelo texto: " + loja.nome]
-        : ["nao", lojas.length ? "Loja não reconhecida. Escolha na lista ou cadastre uma nova."
-                               : "Nenhuma loja cadastrada ainda. Cadastre a partir deste recibo."]] });
+    mostrarResultado();
   } catch (err) {
-    progresso(0, err.message.includes("Leitor") ? err.message : "Não foi possível ler a foto. Tente de novo com mais luz.");
+    progresso(0, "Não foi possível ler a foto. Tente de novo com mais luz.");
     console.error(err);
   }
 };
 
-// Caminho 2: já no formulário (ex.: depois do código), foto só para achar o total
-$("arquivoValor").onchange = async e => {
-  const f = e.target.files[0];
-  e.target.value = "";
-  if (!f) return;
-  lendoValor = true;
-  $("statusValor").textContent = "Abrindo a foto…";
-  try {
-    const texto = await lerTextoDaFoto(f, new Image());
-    const loja = lojaPorId($("rLoja").value) || identificarLoja(texto, lojas);
-    const total = extrairTotal(texto, loja?.rotulo);
-    const data = extrairData(texto);
-    const lidos = [];
-    if (total) { $("rTotal").value = total; lidos.push("total " + iene(total)); }
-    if (data && !lanc.dataDoCodigo) { $("rData").value = data; lidos.push("data"); }
-    if (!$("rLoja").value && loja) { preencherSelectLojas(loja.id); lidos.push("loja"); }
-    lanc.texto = ultimoTexto = texto;
-    $("statusValor").textContent = lidos.length ? "Lido da foto: " + lidos.join(", ") + ". Confira."
-                                                : "Não encontrei o total na foto. Digite o valor.";
-  } catch (err) {
-    $("statusValor").textContent = err.message.includes("Leitor") ? err.message : "Não foi possível ler a foto.";
-    console.error(err);
-  } finally { lendoValor = false; }
-};
+function mostrarResultado() {
+  const loja = identificarLoja(ultimoTexto, lojas);
+  preencherSelectLojas(loja?.id);
+  opcoesCategoria($("rCategoria"), loja?.categoria || "");
+  $("rData").value = extrairData(ultimoTexto) || new Date().toISOString().slice(0, 10);
+  const total = extrairTotal(ultimoTexto, loja?.rotulo);
+  $("rTotal").value = total ?? "";
+  const av = $("avisoLoja");
+  if (loja) { av.className = "aviso ok"; av.textContent = "Loja identificada: " + loja.nome; }
+  else { av.className = "aviso nao"; av.textContent = lojas.length
+      ? "Loja não reconhecida. Escolha na lista ou cadastre uma nova."
+      : "Nenhuma loja cadastrada ainda. Cadastre a partir deste recibo."; }
+  // Texto lido, linha a linha, com a tradução dos termos conhecidos
+  $("textoOcr").innerHTML = linhasDe(ultimoTexto).map(l => {
+    const tr = traduzirLinha(l);
+    return esc(l) + (tr ? `\n<span class="trad">  → ${esc(tr)}</span>` : "");
+  }).join("\n");
+  $("resultado").classList.remove("oculto");
+  $("resultado").scrollIntoView({ behavior: "smooth" });
+}
 
 $("btnSalvar").onclick = () => {
   const total = parseInt($("rTotal").value, 10);
   if (!total || total <= 0) { alert("Informe o valor total."); return; }
-  const codigo = normalizarCodigo($("rCodigo").value);
-  const repetido = codigo && itens.find(i => normalizarCodigo(i.codigo) === codigo);
-  if (repetido) { alert(`Este código já foi lançado em ${repetido.data} (${iene(repetido.total)}).`); return; }
-  if (nuvemConfigurada() && !$("rCategoria").value) { alert("Escolha a categoria: ela define a linha da planilha."); return; }
   itens.push({ id: novoId(), lojaId: $("rLoja").value || null, categoria: $("rCategoria").value || "",
-               data: $("rData").value, total, codigo, enviado: false });
+               data: $("rData").value, total });
   salvarItens();
-  sincronizar();   // manda para a planilha (se não houver internet, fica na fila)
+  $("resultado").classList.add("oculto");
+  $("foto").classList.add("oculto");
+  $("blocoProgresso").classList.add("oculto");
   $("filtroMes").value = ($("rData").value || "").slice(0, 7);
-  fecharFormulario();
   mostrarAba("recibos");
 };
 
@@ -891,10 +546,9 @@ function editarLoja(id, sugestoes) {
   const l = id ? lojaPorId(id) : null;
   $("tituloForm").textContent = l ? "Editar loja" : "Nova loja";
   $("lNome").value = l ? l.nome : "";
-  $("lEndereco").value = l ? (l.endereco || "") : "";
-  $("lTelefone").value = l ? (l.telefone || "") : "";
   $("lChaves").value = l ? l.padroes.join("\n") : (sugestoes || []).join("\n");
   $("lRotulo").value = l ? (l.rotulo || "") : "";
+  opcoesCategoria($("lCategoria"), l ? (l.categoria || "") : ($("rCategoria").value || ""));
   $("btnCancelarLoja").classList.toggle("oculto", !l && !sugestoes);
   $("formLoja").scrollIntoView({ behavior: "smooth" });
   $("lNome").focus();
@@ -906,26 +560,17 @@ $("btnSalvarLoja").onclick = () => {
   const nome = $("lNome").value.trim();
   const padroes = $("lChaves").value.split("\n").map(s => s.trim()).filter(Boolean);
   if (!nome) { alert("Informe o nome da loja."); return; }
-  // Padrões de texto são opcionais: lojas lançadas por código de barras
-  // são reconhecidas pelo padrão aprendido do código.
+  if (!padroes.length) { alert("Informe pelo menos um padrão de identificação."); return; }
   const rotulo = $("lRotulo").value.trim();
-  const endereco = $("lEndereco").value.trim();
-  const telefone = $("lTelefone").value.trim();
-  // O telefone impresso no recibo também serve para reconhecer a loja pela foto
-  if (telefone && !padroes.includes(telefone)) padroes.push(telefone);
-  const id = editandoId || novoId();
-  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, endereco, telefone, padroes, rotulo });
-  else lojas.push({ id, nome, endereco, telefone, padroes, rotulo });
+  const categoria = $("lCategoria").value;
+  if (editandoId) Object.assign(lojaPorId(editandoId), { nome, padroes, rotulo, categoria });
+  else lojas.push({ id: novoId(), nome, padroes, rotulo, categoria });
   salvarLojas();
-  // Se veio de um lançamento aberto, volta para ele com a loja nova já escolhida
-  const voltarAoRecibo = !editandoId && !$("resultado").classList.contains("oculto");
+  const voltarAoRecibo = !editandoId && ultimoTexto && !$("resultado").classList.contains("oculto");
   editarLoja(null);
   $("btnCancelarLoja").classList.add("oculto");
   renderLojas();
-  if (voltarAoRecibo) {
-    mostrarAba("ler");
-    preencherSelectLojas(id);
-  }
+  if (voltarAoRecibo) { mostrarAba("ler"); mostrarResultado(); }
 };
 
 function renderCategorias() {
@@ -951,13 +596,14 @@ $("btnAddCategoria").onclick = () => {
 
 function renderLojas() {
   renderCategorias();
+  if (!editandoId) opcoesCategoria($("lCategoria"), $("lCategoria").value);
   const ul = $("listaLojas");
   if (!lojas.length) { ul.innerHTML = `<li class="vazio" style="display:block">Nenhuma loja cadastrada.</li>`; return; }
   ul.innerHTML = lojas.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map(l => `
     <li>
       <div class="grow" data-editar="${l.id}">
         <div class="t1">${esc(l.nome)}</div>
-        <div class="t2">${esc([l.endereco, l.telefone].filter(Boolean).join(" · ") || "sem endereço/telefone")}</div>
+        <div class="t2">${esc([l.categoria || "sem categoria"].concat(l.padroes).join(" · "))}</div>
       </div>
       <button class="x" data-apagar-loja="${l.id}" aria-label="Apagar">✕</button>
     </li>`).join("");
@@ -973,7 +619,7 @@ function renderLojas() {
 
 // ---------------- Recibos ----------------
 function renderRecibos() {
-  if (!$("filtroMes").value) $("filtroMes").value = hoje().slice(0, 7);
+  if (!$("filtroMes").value) $("filtroMes").value = new Date().toISOString().slice(0, 7);
   const mes = $("filtroMes").value;
   const doMes = itens.filter(i => (i.data || "").startsWith(mes))
                      .sort((a, b) => (b.data || "").localeCompare(a.data || ""));
@@ -999,39 +645,19 @@ function renderRecibos() {
       <div class="grow">
         <div class="t1">${esc(lojaPorId(i.lojaId)?.nome || "Não identificada")}</div>
         <div class="t2">${esc(i.data || "")} · ${esc(i.categoria || "Sem categoria")}</div>
-        ${!i.enviado && i.erroNuvem ? `<div class="t2" style="color:#c0392b">⚠️ ${esc(i.erroNuvem)}</div>` : ""}
       </div>
-      <div class="valor">${iene(i.total)}<span data-pendente="${i.id}"
-        class="${i.enviado || !nuvemConfigurada() ? "oculto" : ""}" title="Aguardando envio"> ⏳</span></div>
+      <div class="valor">${iene(i.total)}</div>
       <button class="x" data-apagar="${i.id}" aria-label="Apagar">✕</button>
     </li>`).join("") : `<li class="vazio" style="display:block">Nenhum recibo neste mês.</li>`;
   $("listaRecibos").querySelectorAll("[data-apagar]").forEach(el => el.onclick = () => {
-    if (!confirm("Apagar este recibo? (Também será apagado da planilha.)")) return;
-    const alvo = itens.find(x => x.id === el.dataset.apagar);
-    // Se já estava na planilha, apaga lá também (ou guarda na fila até ter internet)
-    if (alvo?.enviado) { filaApagar.push(alvo.id); gravar(LS.apagar, filaApagar); }
+    if (!confirm("Apagar este recibo?")) return;
     itens = itens.filter(x => x.id !== el.dataset.apagar);
-    salvarItens(); renderRecibos(); sincronizar();
+    salvarItens(); renderRecibos();
   });
-  atualizarStatusNuvem();
 }
 $("filtroMes").onchange = renderRecibos;
 
-// No iPhone (app da Tela de Início) um "download" abre uma tela de pré-visualização da qual
-// não dá para voltar. Por isso usa a folha de Compartilhar (Salvar em Arquivos, Excel, e-mail…).
 function baixar(nome, conteudo, tipo) {
-  try {
-    const arq = new File([conteudo], nome, { type: tipo });
-    if (navigator.canShare && navigator.canShare({ files: [arq] })) {
-      navigator.share({ files: [arq], title: nome }).catch(e => {
-        if (e.name !== "AbortError") baixarLink(nome, conteudo, tipo);   // cancelado = não faz nada
-      });
-      return;
-    }
-  } catch {}
-  baixarLink(nome, conteudo, tipo);
-}
-function baixarLink(nome, conteudo, tipo) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
   a.download = nome;
@@ -1094,18 +720,18 @@ $("btnCsv").onclick = () => {
   const linhas = itens.slice().sort((a, b) => (a.data || "").localeCompare(b.data || "")).map(i => ({
     data: i.data || "", mes: (i.data || "").slice(0, 7),
     loja: lojaPorId(i.lojaId)?.nome || "Não identificada",
-    cat: i.categoria || "Sem categoria", total: i.total, codigo: i.codigo || ""
+    cat: i.categoria || "Sem categoria", total: i.total
   }));
   const meses = [...new Set(linhas.map(l => l.mes))];
   const cats = [...new Set(linhas.map(l => l.cat))].sort();
   const soma = (m, c) => linhas.filter(l => l.mes === m && (!c || l.cat === c)).reduce((s, l) => s + l.total, 0);
   const blob = gerarXlsx([
-    { nome: "Recibos", larguras: [12, 9, 28, 24, 13, 30],
-      linhas: [["Data", "Mês", "Loja", "Categoria", "Total (JPY)", "Código de barras"]].concat(linhas.map(l => [l.data, l.mes, l.loja, l.cat, l.total, l.codigo])) },
+    { nome: "Recibos", larguras: [12, 9, 28, 24, 13],
+      linhas: [["Data", "Mês", "Loja", "Categoria", "Total (JPY)"]].concat(linhas.map(l => [l.data, l.mes, l.loja, l.cat, l.total])) },
     { nome: "Resumo por mês", larguras: [9, ...cats.map(c => Math.max(12, c.length + 2)), 12],
       linhas: [["Mês", ...cats, "Total"]].concat(meses.map(m => [m, ...cats.map(c => soma(m, c)), soma(m)])) }
   ]);
-  baixar(`recibos-${hoje()}.xlsx`, blob,
+  baixar(`recibos-${new Date().toISOString().slice(0, 10)}.xlsx`, blob,
          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 };
 
@@ -1123,424 +749,9 @@ $("arqBackup").onchange = async e => {
     lojas = d.lojas; itens = d.itens;
     if (Array.isArray(d.categorias)) { categorias = d.categorias; salvarCats(); }
     salvarLojas(); salvarItens(); renderLojas();
-    sincronizar();   // recibos do backup que ainda não estão na planilha são enviados
     alert("Backup importado.");
   } catch { alert("Arquivo de backup inválido."); }
 };
-
-// ---------------- Planilha Excel no OneDrive (envio automático) ----------------
-// Login Microsoft (MSAL, por redirecionamento: funciona no app da Tela de Início)
-// e gravação pela Microsoft Graph.
-// Cada recibo:
-//   1) entra na aba "Lançamentos" (ID, Data, Loja, Categoria, Total, Código, Aba, Célula);
-//   2) é somado na célula [linha da categoria × coluna do dia] da aba do mês;
-//   3) a coluna "Célula" é preenchida — sinal de que a soma foi feita.
-// Reenviar é seguro: um ID que já tem "Célula" preenchida é ignorado.
-// Apagar: desconta o valor da célula anotada e remove a linha de "Lançamentos".
-LS.cfg = "recibos.excel.v1";
-LS.apagar = "recibos.apagarNaNuvem.v1";
-const MSAL_SRC = "https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js";
-const ESCOPOS = ["User.Read", "Files.ReadWrite"];
-const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-const SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-const ABA_LISTA = "Lançamentos";
-const CAB_LISTA = ["ID", "Data", "Loja", "Categoria", "Total", "Código", "Aba", "Célula"];
-const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// IDs do app "Recibos" no Entra (Office One Trading). Não são senhas: sem o login não dão acesso a nada.
-const CFG_PADRAO = { cliente: "5ca56744-7893-42b0-853c-56325e357120",
-                     locatario: "f54173de-c07f-475c-8903-ddd5193db612", arquivo: "Orçamento 2026.xlsx" };
-let cfgNuvem = { ...CFG_PADRAO };
-try { const c = JSON.parse(localStorage.getItem(LS.cfg)) || {};
-      for (const k in c) if (c[k]) cfgNuvem[k] = c[k]; } catch {}
-let filaApagar = carregar(LS.apagar);
-let enviando = false;
-let ultimoErroNuvem = "";
-let msalApp = null;      // Promise do PublicClientApplication
-
-const nuvemConfigurada = () => GUID.test(cfgNuvem.cliente) && GUID.test(cfgNuvem.locatario) && !!cfgNuvem.arquivo;
-
-// ---- Login ----
-function iniciarMsal() {
-  if (!msalApp) msalApp = criarMsal().catch(e => { msalApp = null; throw e; });
-  return msalApp;
-}
-async function criarMsal() {
-  await carregarScript(MSAL_SRC);
-  if (!window.msal) throw new Error("Sem conexão (não carregou o login da Microsoft).");
-  const app = new msal.PublicClientApplication({
-    auth: { clientId: cfgNuvem.cliente, authority: "https://login.microsoftonline.com/" + cfgNuvem.locatario,
-            redirectUri: location.origin + location.pathname },
-    cache: { cacheLocation: "localStorage" }
-  });
-  await app.initialize();
-  const volta = await app.handleRedirectPromise();     // chegando de volta do login
-  if (volta?.account) app.setActiveAccount(volta.account);
-  else if (!app.getActiveAccount() && app.getAllAccounts()[0]) app.setActiveAccount(app.getAllAccounts()[0]);
-  return app;
-}
-
-// interativo=true: se precisar de login, vai para a página da Microsoft.
-async function obterToken(interativo) {
-  const app = await iniciarMsal();
-  const conta = app.getActiveAccount();
-  if (!conta) {
-    if (interativo) { await app.loginRedirect({ scopes: ESCOPOS }); }
-    throw new Error("Toque em \"Entrar e testar\" para entrar na conta Microsoft.");
-  }
-  try {
-    return (await app.acquireTokenSilent({ scopes: ESCOPOS, account: conta })).accessToken;
-  } catch (e) {
-    if (interativo) { await app.acquireTokenRedirect({ scopes: ESCOPOS, account: conta }); }
-    if (e instanceof TypeError || /network|fetch/i.test(e.errorCode || e.message)) throw new Error("Sem conexão com a Microsoft.");
-    throw new Error("O login expirou. Toque em \"Entrar e testar\".");
-  }
-}
-
-// ---- Graph ----
-let sessao = null;   // { token, id }
-const baseLivro = () => "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-  cfgNuvem.arquivo.split("/").filter(Boolean).map(encodeURIComponent).join("/") + ":/workbook";
-const abaUrl = nome => `${baseLivro()}/worksheets('${encodeURIComponent(nome.replace(/'/g, "''"))}')`;
-
-async function graph(metodo, url, corpo) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 30000);
-  try {
-    const h = { Authorization: "Bearer " + sessao.token };
-    if (sessao.id) h["workbook-session-id"] = sessao.id;
-    if (corpo !== undefined) h["Content-Type"] = "application/json";
-    const r = await fetch(url, { method: metodo, headers: h, signal: ctrl.signal,
-                                 body: corpo === undefined ? undefined : JSON.stringify(corpo) });
-    if (r.status === 204) return {};
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      if (r.status === 404) throw new Error(`Não achei "${cfgNuvem.arquivo}" no OneDrive (ou a aba pedida).`);
-      if (r.status === 401) { throw new Error("O login expirou. Toque em \"Entrar e testar\"."); }
-      if (r.status === 423 || r.status === 409) throw new Error("A planilha está ocupada. Tento de novo depois.");
-      throw new Error(d.error?.message || `Erro ${r.status} no Excel.`);
-    }
-    return d;
-  } catch (e) {
-    if (e.name === "AbortError") throw new Error("O Excel demorou demais para responder.");
-    if (e instanceof TypeError) throw new Error("Sem conexão com o Excel.");
-    throw e;
-  } finally { clearTimeout(t); }
-}
-
-async function abrirSessao(interativo) {
-  sessao = { token: await obterToken(interativo), id: null };
-  const d = await graph("POST", baseLivro() + "/createSession", { persistChanges: true });
-  sessao.id = d.id;
-}
-async function fecharSessao() {
-  if (sessao?.id) { try { await graph("POST", baseLivro() + "/closeSession", {}); } catch {} }
-  sessao = null;
-}
-
-// ---- Leitura e escrita de células ----
-function colLetra(n) { let s = ""; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; } return s; }
-function colNum(l) { let n = 0; for (const c of l) n = n * 26 + c.charCodeAt(0) - 64; return n - 1; }
-// "Ago!A1:AG59" → { linha0: 0, col0: 0 }
-function inicioDe(endereco) {
-  const m = /!?\$?([A-Z]+)\$?(\d+)/.exec(endereco.split("!").pop());
-  return { col0: colNum(m[1]), linha0: +m[2] - 1 };
-}
-const normCat = s => String(s ?? "").normalize("NFKC").trim().toLowerCase();
-
-async function lerAba(nome) {
-  const d = await graph("GET", abaUrl(nome) + "/usedRange?$select=address,values,formulas");
-  return { ...d, ...inicioDe(d.address) };
-}
-
-let abasCache = null;
-async function nomesDasAbas() {
-  if (!abasCache) abasCache = (await graph("GET", baseLivro() + "/worksheets?$select=name")).value.map(w => w.name);
-  return abasCache;
-}
-
-// Cria a aba do mês copiando a "Modelo" (fórmulas, formato dos números, larguras).
-async function criarAbaDoMes(nome, ano, mes) {
-  const abas = await nomesDasAbas();
-  if (!abas.includes("Modelo")) throw new Error(`Falta a aba "${nome}" e não há aba "Modelo" para copiar.`);
-  const m = await graph("GET", abaUrl("Modelo") + "/usedRange?$select=address,formulas,numberFormat,columnCount");
-  await graph("POST", baseLivro() + "/worksheets/add", { name: nome });
-  abasCache.push(nome);
-  const ini = inicioDe(m.address);
-  const formulas = m.formulas.map(l => l.slice());
-  // Linha 1 = dias, linha 2 = dia da semana (só até o último dia do mês)
-  const ultimo = new Date(ano, mes, 0).getDate();
-  const r1 = formulas.findIndex(l => normCat(l[0]) === "dia");
-  if (r1 >= 0) formulas[r1].forEach((v, c) => {
-    if (c === 0 || typeof v !== "number") return;
-    if (v > ultimo) { formulas[r1][c] = ""; if (formulas[r1 + 1]) formulas[r1 + 1][c] = ""; }
-    else if (formulas[r1 + 1] && !formulas[r1 + 1][c]) formulas[r1 + 1][c] = SEMANA[new Date(ano, mes - 1, v).getDay()];
-  });
-  await graph("PATCH", `${abaUrl(nome)}/range(address='${m.address.split("!").pop()}')`,
-              { formulas, numberFormat: m.numberFormat });
-  try {
-    await graph("PATCH", `${abaUrl(nome)}/range(address='A:A')/format`, { columnWidth: 100 });
-    await graph("PATCH", `${abaUrl(nome)}/range(address='A:A')/format/font`, { bold: true });
-    await graph("PATCH", `${abaUrl(nome)}/range(address='${colLetra(ini.col0 + 1)}1:${colLetra(ini.col0 + m.columnCount - 1)}2')/format/font`, { bold: true });
-  } catch {}   // formatação é só capricho
-}
-
-// Soma (ou desconta) um valor numa célula, mantendo o histórico na fórmula: =1140+300
-function formulaSomada(atual, v) {
-  if (atual === "" || atual === null || atual === 0) return v;
-  if (typeof atual === "number") return `=${atual}+${v}`;
-  const s = String(atual);
-  if (s.startsWith("=")) return `${s}+${v}`;
-  if (/^-?\d+(\.\d+)?$/.test(s.trim())) return `=${s.trim()}+${v}`;
-  throw new Error(`A célula tem texto ("${s}"), não um valor.`);
-}
-function formulaDescontada(atual, v) {
-  if (typeof atual === "number") return atual === v ? "" : `=${atual}-${v}`;
-  const s = String(atual ?? "");
-  if (/^=\d+(\.\d+)?([+-]\d+(\.\d+)?)*$/.test(s)) {           // só números: tira a parcela
-    const partes = s.slice(1).match(/[+-]?\d+(\.\d+)?/g).map(Number);
-    const k = partes.indexOf(v);
-    if (k >= 0) {
-      partes.splice(k, 1);
-      if (!partes.length) return "";
-      if (partes.length === 1 && partes[0] >= 0) return partes[0];
-      return "=" + partes.map((p, i) => (i && p >= 0 ? "+" : "") + p).join("");
-    }
-  }
-  if (s === "") return -v;
-  return s.startsWith("=") ? `${s}-${v}` : `=${s}-${v}`;
-}
-
-async function alterarCelula(aba, endereco, fn) {
-  const url = `${abaUrl(aba)}/range(address='${endereco}')`;
-  const d = await graph("GET", url + "?$select=formulas");
-  await graph("PATCH", url, { formulas: [[fn(d.formulas[0][0])]] });
-}
-
-// ---- Aba "Lançamentos" ----
-async function lerLista() {
-  const abas = await nomesDasAbas();
-  if (!abas.includes(ABA_LISTA)) {
-    await graph("POST", baseLivro() + "/worksheets/add", { name: ABA_LISTA });
-    abas.push(ABA_LISTA);
-    await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A1:H1')`, { values: [CAB_LISTA] });
-    try { await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A1:H1')/format/font`, { bold: true }); } catch {}
-  }
-  const d = await lerAba(ABA_LISTA);
-  const linhas = new Map();    // id → { linha (1-based), aba, celula, total }
-  d.values.forEach((l, i) => {
-    const id = String(l[0] ?? "");
-    if (id && id !== "ID") linhas.set(id, { linha: d.linha0 + i + 1, aba: l[6], celula: l[7], total: Number(l[4]) || 0 });
-  });
-  return { linhas, proxima: d.linha0 + d.values.length + 1 };
-}
-
-// ---- Gravar um recibo ----
-async function gravarRecibo(i, lista, gradeCache) {
-  const reg = lista.linhas.get(i.id);
-  if (reg?.celula) return;                                   // já estava completo
-  const doRecibo = msg => Object.assign(new Error(msg), { doRecibo: true });   // problema só deste recibo
-  if (!i.categoria) throw doRecibo("Há recibo sem categoria.");
-  const [ano, mes, dia] = (i.data || "").split("-").map(Number);
-  if (!ano || !mes || !dia) throw doRecibo("Há recibo sem data.");
-  const aba = MESES[mes - 1];
-  if (!(await nomesDasAbas()).includes(aba)) await criarAbaDoMes(aba, ano, mes);
-  if (!gradeCache[aba]) gradeCache[aba] = await lerAba(aba);
-  const g = gradeCache[aba];
-  const r = g.values.findIndex(l => normCat(l[0]) === normCat(i.categoria));
-  if (r < 0) throw doRecibo(`A categoria "${i.categoria}" não existe na aba ${aba} — crie a linha na planilha.`);
-  const rDia = g.values.findIndex(l => normCat(l[0]) === "dia");
-  const c = (g.values[rDia >= 0 ? rDia : 0] || []).findIndex((v, k) => k > 0 && Number(v) === dia);
-  if (c < 0) throw doRecibo(`Não achei a coluna do dia ${dia} na aba ${aba}.`);
-  const endereco = colLetra(g.col0 + c) + (g.linha0 + r + 1);
-
-  // 1) linha em Lançamentos (sem "Célula" ainda)
-  let linha = reg?.linha;
-  if (!linha) {
-    linha = lista.proxima++;
-    await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='A${linha}:H${linha}')`, { values: [[
-      i.id, i.data, lojaPorId(i.lojaId)?.nome || "Não identificada", i.categoria, i.total,
-      i.codigo ? "'" + i.codigo : "", aba, ""]] });
-    lista.linhas.set(i.id, { linha, aba, celula: "", total: i.total });
-  }
-  // 2) soma na grade
-  try { await alterarCelula(aba, endereco, atual => formulaSomada(atual, i.total)); }
-  catch (e) { if (/tem texto/.test(e.message)) e.doRecibo = true; throw e; }
-  // 3) anota a célula
-  await graph("PATCH", `${abaUrl(ABA_LISTA)}/range(address='G${linha}:H${linha}')`, { values: [[aba, endereco]] });
-  lista.linhas.get(i.id).celula = endereco;
-}
-
-// ---- Apagar um recibo ----
-async function apagarRecibo(id, lista) {
-  const reg = lista.linhas.get(id);
-  if (!reg) return;                                          // não estava lá
-  if (reg.celula && reg.aba) await alterarCelula(reg.aba, reg.celula, atual => formulaDescontada(atual, reg.total));
-  await graph("POST", `${abaUrl(ABA_LISTA)}/range(address='A${reg.linha}:H${reg.linha}')/delete`, { shift: "Up" });
-  lista.linhas.delete(id);
-  for (const r of lista.linhas.values()) if (r.linha > reg.linha) r.linha--;
-  lista.proxima--;
-}
-
-// Envia tudo o que está pendente (apagamentos e recibos novos).
-async function sincronizar(interativo = false) {
-  if (enviando || !nuvemConfigurada()) { atualizarStatusNuvem(); return; }
-  const pendentes = itens.filter(i => !i.enviado);
-  if (!interativo && !filaApagar.length && !pendentes.length) { atualizarStatusNuvem(); return; }
-  enviando = true; atualizarStatusNuvem();
-  try {
-    abasCache = null;
-    await abrirSessao(interativo);
-    const lista = await lerLista();
-    for (const id of filaApagar.slice()) {
-      await apagarRecibo(id, lista);
-      filaApagar = filaApagar.filter(x => x !== id); gravar(LS.apagar, filaApagar);
-    }
-    const grade = {};
-    const problemas = [];
-    for (const i of pendentes) {
-      try {
-        await gravarRecibo(i, lista, grade);
-        i.enviado = true; delete i.erroNuvem;
-      } catch (e) {
-        if (!e.doRecibo) throw e;              // sem internet, login etc.: para tudo e tenta depois
-        i.erroNuvem = e.message; problemas.push(e.message);   // só este recibo espera; os outros seguem
-      }
-      salvarItens(); atualizarStatusNuvem();
-    }
-    ultimoErroNuvem = problemas.length ? problemas[0] + (problemas.length > 1 ? ` (+${problemas.length - 1})` : "") : "";
-  } catch (e) {
-    console.error(e);
-    ultimoErroNuvem = e.message;
-  } finally {
-    await fecharSessao();
-    enviando = false;
-    atualizarStatusNuvem();
-  }
-}
-
-function atualizarStatusNuvem() {
-  const el = $("statusNuvem");
-  if (!nuvemConfigurada()) { el.classList.add("oculto"); return; }
-  const n = itens.filter(i => !i.enviado).length + filaApagar.length;
-  el.classList.remove("oculto");
-  if (enviando) { el.className = "aviso"; el.textContent = "☁️ Enviando para o Excel…"; }
-  else if (!n) { el.className = "aviso ok"; el.textContent = "☁️ Tudo enviado para o Excel."; }
-  else { el.className = "aviso nao";
-         el.textContent = `☁️ ${n} ${n === 1 ? "alteração aguardando" : "alterações aguardando"} envio` +
-                          (ultimoErroNuvem ? ` — ${ultimoErroNuvem}` : "."); }
-  // Relógio ⏳ nos recibos ainda não enviados
-  document.querySelectorAll("[data-pendente]").forEach(s =>
-    s.classList.toggle("oculto", !!itens.find(i => i.id === s.dataset.pendente)?.enviado));
-}
-
-function avisoExcel(classe, texto) {
-  const av = $("avisoNuvem");
-  av.classList.remove("oculto"); av.className = "aviso " + classe; av.textContent = texto;
-}
-
-function lerCamposExcel() {
-  const novo = { cliente: $("cfgCliente").value.trim(), locatario: $("cfgLocatario").value.trim(),
-                 arquivo: $("cfgArquivo").value.trim().replace(/^\/+/, "") || "Orçamento 2026.xlsx" };
-  if (novo.cliente !== cfgNuvem.cliente || novo.locatario !== cfgNuvem.locatario) msalApp = null;
-  cfgNuvem = novo; gravar(LS.cfg, cfgNuvem);
-}
-
-// Categorias = linhas da aba Modelo que têm total (fórmula SUM), sem os totais gerais.
-async function categoriasDaPlanilha() {
-  const abas = await nomesDasAbas();
-  const fonte = abas.includes("Modelo") ? "Modelo" : abas.find(a => MESES.includes(a));
-  if (!fonte) throw new Error("Não achei a aba Modelo nem abas de mês.");
-  const d = await lerAba(fonte);
-  const fora = new Set(["total", "ativos", "passivos", "dia"]);
-  const res = []; let grupo = "";
-  d.formulas.forEach((l, r) => {
-    const nome = String(d.values[r][0] ?? "").trim();
-    if (!nome || fora.has(normCat(nome))) return;
-    const temSoma = l.some(f => /SUM\(/i.test(String(f)) && String(f).includes(String(d.linha0 + r + 1)));
-    if (temSoma) res.push({ nome, grupo }); else grupo = nome;     // linha sem total = título do grupo
-  });
-  return res;
-}
-
-async function aplicarCategoriasDaPlanilha() {
-  const cats = await categoriasDaPlanilha();
-  if (!cats.length) throw new Error("Não achei categorias na planilha.");
-  categorias = cats.map(c => c.nome); salvarCats();
-  gruposCat = Object.fromEntries(cats.map(c => [c.nome, c.grupo])); gravar(LS.grupos, gruposCat);
-  renderLojas();
-  opcoesCategoria($("rCategoria"), $("rCategoria").value);
-  return cats.length;
-}
-
-const VOLTAR_TESTE = "recibos.excel.testarAoVoltar";
-async function testarExcel(interativo) {
-  if (enviando) { avisoExcel("", "Aguarde: envio em andamento."); return; }
-  avisoExcel("", "Conectando…");
-  enviando = true;
-  try {
-    abasCache = null;
-    if (interativo) localStorage.setItem(VOLTAR_TESTE, "1");   // se for para o login, testa ao voltar
-    await abrirSessao(interativo);
-    localStorage.removeItem(VOLTAR_TESTE);
-    const abas = await nomesDasAbas();
-    let extra = "";
-    if (!localStorage.getItem("recibos.excel.catsImportadas")) {
-      const n = await aplicarCategoriasDaPlanilha();
-      localStorage.setItem("recibos.excel.catsImportadas", "1");
-      extra = ` ${n} categorias copiadas da planilha.`;
-    }
-    avisoExcel("ok", `Conectado! Abas: ${abas.join(", ")}.${extra}`);
-  } catch (e) { avisoExcel("nao", e.message); }
-  finally { await fecharSessao(); enviando = false; }
-  sincronizar();
-}
-$("btnTestarNuvem").onclick = () => {
-  lerCamposExcel();
-  if (!nuvemConfigurada()) { avisoExcel("nao", "Cole os dois IDs (formato 00000000-0000-…) e o nome do arquivo."); return; }
-  testarExcel(true);
-};
-
-$("btnCatsPlanilha").onclick = async () => {
-  if (!nuvemConfigurada()) { alert("Configure e teste o Excel primeiro."); return; }
-  if (!confirm("Trocar a lista de categorias do app pelas linhas da planilha?")) return;
-  if (enviando) { alert("Aguarde o envio terminar."); return; }
-  avisoExcel("", "Lendo categorias…");
-  enviando = true;
-  try {
-    abasCache = null; await abrirSessao(true);
-    const n = await aplicarCategoriasDaPlanilha();
-    avisoExcel("ok", `${n} categorias copiadas da planilha, separadas por grupo.`);
-  } catch (e) { avisoExcel("nao", e.message); }
-  finally { await fecharSessao(); }
-};
-
-$("btnSair").onclick = async () => {
-  if (!nuvemConfigurada()) return;
-  if (!confirm("Sair da conta Microsoft neste aparelho?")) return;
-  try { const app = await iniciarMsal(); await app.logoutRedirect({ account: app.getActiveAccount() }); }
-  catch (e) { avisoExcel("nao", e.message); }
-};
-
-$("btnEnviarTudo").onclick = () => {
-  if (!nuvemConfigurada()) { alert("Configure e teste o Excel primeiro."); return; }
-  if (!confirm(`Enviar todos os ${itens.length} recibos? Os que já estão no Excel não são somados de novo.`)) return;
-  itens.forEach(i => { i.enviado = false; }); salvarItens();
-  sincronizar(true).then(() => avisoExcel(ultimoErroNuvem ? "nao" : "ok",
-                                          ultimoErroNuvem || "Todos os recibos estão no Excel."));
-};
-
-$("cfgCliente").value = cfgNuvem.cliente;
-$("cfgLocatario").value = cfgNuvem.locatario;
-$("cfgArquivo").value = cfgNuvem.arquivo;
-// Tenta de novo quando a internet volta ou quando o app volta para a tela
-window.addEventListener("online", () => sincronizar());
-document.addEventListener("visibilitychange", () => { if (!document.hidden) sincronizar(); });
-// Voltando da página de login da Microsoft: conclui o login e envia o pendente
-if (nuvemConfigurada()) iniciarMsal().then(() => {
-  if (localStorage.getItem(VOLTAR_TESTE)) { localStorage.removeItem(VOLTAR_TESTE); mostrarAba("lojas"); testarExcel(false); }
-  else sincronizar();
-}).catch(e => { ultimoErroNuvem = e.message; atualizarStatusNuvem(); });
 
 // ---------------- Glossário visível no app ----------------
 function renderGlossario() {
